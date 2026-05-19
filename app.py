@@ -138,10 +138,11 @@ if uploaded:
                 no_acc_df,
                 template.getvalue() if template else None,
             )
+            output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
             st.download_button(
                 label="結果をダウンロード (.xlsx)",
                 data=output_bytes,
-                file_name="patent_selection_result.xlsx",
+                file_name=output_file_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         except Exception as exc:
