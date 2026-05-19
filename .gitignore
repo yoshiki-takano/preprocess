@@ -33,4 +33,4 @@ data/*.xlsx
 data/*.xlsm
 data/*.xls
 data/*.csv
-data/*.DNO
+data/*.dno
