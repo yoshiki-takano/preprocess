@@ -703,7 +703,67 @@ def test_republish_rule_takes_precedence_when_both_toggles_are_enabled() -> None
 
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "WO1989000044A1"
-    assert selected.iloc[0]["application_number"] == "APP_FROM_JPX"
+    assert selected.iloc[0]["application_number"] == "APP_FROM_JPA1"
+
+
+def test_prior_republish_overwrite_runs_even_when_republish_skip_applies() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "WO_ORIGINAL_APP",
+                "application_date": pd.Timestamp("2019-11-22"),
+                "publication_number": "WO2020137282A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-07-02"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_SKIP",
+                "family_id": "F_SKIP",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "US_APP",
+                "application_date": pd.Timestamp("2021-06-18"),
+                "publication_number": "US20220109017A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2022-04-07"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_SKIP",
+                "family_id": "F_SKIP",
+                "country_code": "US",
+            },
+            {
+                "application_number": "JP_APP_A1",
+                "application_date": pd.Timestamp("2019-11-22"),
+                "publication_number": "JP2020137282A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2021-11-11"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_SKIP",
+                "family_id": "F_SKIP",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="earliest",
+        country_priority=["JP", "US"],
+        treat_wo_republication_as_jp=True,
+        treat_wo_prior_republication_as_jp=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    wo_row = selected.loc[selected["publication_number"].eq("WO2020137282A1")].iloc[0]
+    assert wo_row["application_number"] == "JP_APP_A1"
 
 
 def test_jp_x_is_excluded_before_country_priority() -> None:

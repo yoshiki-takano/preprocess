@@ -315,9 +315,10 @@ def _apply_wo_prior_republication_as_jp(
     if skip_mask is not None:
         effective_skip = skip_mask.reindex(out.index, fill_value=False)
 
-    wo_a1_mask = country.eq("WO") & kind.eq("A1") & pub_body.ne("") & accession.ne("") & ~effective_skip
+    wo_a1_all_mask = country.eq("WO") & kind.eq("A1") & pub_body.ne("") & accession.ne("")
+    wo_a1_mask = wo_a1_all_mask & ~effective_skip
     jp_a1_mask = country.eq("JP") & kind.eq("A1") & pub_body.ne("") & accession.ne("")
-    if not wo_a1_mask.any() or not jp_a1_mask.any():
+    if not wo_a1_all_mask.any() or not jp_a1_mask.any():
         return out
 
     jp_lookup = out.loc[jp_a1_mask, ["accession_number", "application_number", "publication_date"]].copy()
@@ -329,8 +330,8 @@ def _apply_wo_prior_republication_as_jp(
         .rename(columns={"application_number": "application_number_jp"})
     )
 
-    targets = out.loc[wo_a1_mask, ["accession_number", "application_number"]].copy()
-    targets["_pub_body"] = pub_body.loc[wo_a1_mask]
+    targets = out.loc[wo_a1_all_mask, ["accession_number", "application_number"]].copy()
+    targets["_pub_body"] = pub_body.loc[wo_a1_all_mask]
     targets["_row_index"] = targets.index
 
     merged = targets.merge(jp_lookup, on=["accession_number", "_pub_body"], how="left").set_index("_row_index")
@@ -339,17 +340,22 @@ def _apply_wo_prior_republication_as_jp(
         return out
 
     matched_index = merged.index[matched]
-    out.loc[matched_index, "_country_priority_code"] = "JP"
-
     matched_rows = merged.loc[matched, ["application_number_jp"]].copy()
     jp_has = matched_rows["application_number_jp"].fillna("").astype(str).str.strip().ne("")
     fill_index = matched_rows.index[jp_has]
     if len(fill_index) > 0:
         out.loc[fill_index, "application_number"] = matched_rows.loc[fill_index, "application_number_jp"]
 
+    matched_effect_mask = matched & ~effective_skip.reindex(merged.index, fill_value=False)
+    if not matched_effect_mask.any():
+        return out
+
+    matched_effect_index = merged.index[matched_effect_mask]
+    out.loc[matched_effect_index, "_country_priority_code"] = "JP"
+
     # Drop matched JP A1 rows so they are never selected
     matched_pairs = set(
-        zip(merged.loc[matched, "accession_number"], merged.loc[matched, "_pub_body"])
+        zip(merged.loc[matched_effect_mask, "accession_number"], merged.loc[matched_effect_mask, "_pub_body"])
     )
     jp_a1_indices = out.index[jp_a1_mask]
     jp_pub_body_vals = pub_body.reindex(jp_a1_indices)
