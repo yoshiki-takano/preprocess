@@ -1134,3 +1134,85 @@ def test_application_date_is_resolved_from_selected_patent_number() -> None:
     assert len(selected) == 1
     assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
     assert pd.to_datetime(selected.iloc[0]["application_date"]) == pd.Timestamp("2021-09-20")
+
+
+def test_additional_output_columns_are_generated_from_source_columns() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_NEW",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "US202500001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2025-01-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_NEW",
+                "family_id": "F_NEW",
+                "country_code": "US",
+                "title_english": "An optical spin injection structure",
+                "title_dwpi": "Optical spin injection structure",
+                "assignee_standardized": "ABC corporation,US | 艾比西公司,US",
+                "assignee_applicant": "Fallback Applicant,US",
+                "assignee_dwpi": "ABC corp DWPI",
+                "priority_number": "GB201214619A | WO2013EP67161A",
+                "priority_date": "2012-08-16 | 2013-08-16",
+                "dwpi_family_members": "GB2504977A | WO2014027092A2 | EP2885820A2 | US20150187971A1",
+                "dwpi_family_members_status": "GB2504977A Alive | US20150187971A1 Alive | CN104854709B Dead | EP2885820B1 Indeterminate | RU2672642C2 Alive",
+            }
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["US", "JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    row = selected.iloc[0]
+    assert row["タイトル（英語）"] == "An optical spin injection structure"
+    assert row["タイトル - DWPI"] == "Optical spin injection structure"
+    assert row["譲受人 - DWPI"] == "ABC corp DWPI"
+    assert row["出願人/権利者"] == "ABC corporation"
+    assert row["優先権情報"] == "GB201214619A(2012-08-16) | WO2013EP67161A(2013-08-16)"
+    assert row["DWPI ファミリーメンバー"] == "GB2504977A | WO2014027092A2 | EP2885820A2 | US20150187971A1"
+    assert row["五庁有効ファミリ"] == "US20150187971A1"
+    assert row["五庁失効ファミリ"] == "CN104854709B"
+    assert row["その他ファミリ"] == "GB2504977A | EP2885820B1 | RU2672642C2"
+
+
+def test_priority_info_pairs_up_to_shorter_length() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_PAIR",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "JP202500001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2025-01-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_PAIR",
+                "family_id": "F_PAIR",
+                "country_code": "JP",
+                "priority_number": "P1 | P2 | P3",
+                "priority_date": "2020-01-01 | 2020-02-01",
+            }
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["優先権情報"] == "P1(2020-01-01) | P2(2020-02-01)"

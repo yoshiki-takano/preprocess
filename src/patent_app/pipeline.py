@@ -12,6 +12,20 @@ from .models import SelectionConfig
 
 ProgressCallback = Callable[[int, str], None]
 
+FIVE_OFFICE_COUNTRIES = {"JP", "US", "EP", "CN", "KR"}
+
+SOURCE_HELPER_COLUMNS = [
+    "title_english",
+    "title_dwpi",
+    "assignee_standardized",
+    "assignee_applicant",
+    "assignee_dwpi",
+    "priority_number",
+    "priority_date",
+    "dwpi_family_members",
+    "dwpi_family_members_status",
+]
+
 
 def _notify_progress(progress_callback: ProgressCallback | None, value: int, message: str) -> None:
     if progress_callback is not None:
@@ -103,6 +117,8 @@ def run_selection_pipeline(
         lambda row: _resolve_selected_legal_status(row, legal_status_lookup),
         axis=1,
     )
+    selected = _append_additional_output_columns(selected, canonical_df)
+    selected = selected.drop(columns=SOURCE_HELPER_COLUMNS, errors="ignore")
     selected = _reorder_selected_columns(selected)
     selected = selected.reset_index(drop=True)
     no_acc = no_acc_df.drop(columns=["family_id", "registration_date"], errors="ignore").reset_index(drop=True)
@@ -596,6 +612,15 @@ def _reorder_selected_columns(df: pd.DataFrame) -> pd.DataFrame:
         "application_number",
         "application_date",
         "publication_date",
+        "タイトル（英語）",
+        "タイトル - DWPI",
+        "出願人/権利者",
+        "譲受人 - DWPI",
+        "優先権情報",
+        "DWPI ファミリーメンバー",
+        "五庁有効ファミリ",
+        "五庁失効ファミリ",
+        "その他ファミリ",
     ]
     leading = [c for c in preferred if c in df.columns]
     trailing = [c for c in df.columns if c not in leading]
@@ -691,6 +716,225 @@ def _resolve_publication_date_from_selected_patent(selected: pd.DataFrame, looku
 
     out["publication_date"] = out.apply(_resolve, axis=1)
     return out
+
+
+def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.DataFrame) -> pd.DataFrame:
+    out = selected.copy()
+    if out.empty or canonical_df.empty:
+        for col in [
+            "タイトル（英語）",
+            "タイトル - DWPI",
+            "出願人/権利者",
+            "譲受人 - DWPI",
+            "優先権情報",
+            "DWPI ファミリーメンバー",
+            "五庁有効ファミリ",
+            "五庁失効ファミリ",
+            "その他ファミリ",
+        ]:
+            out[col] = ""
+        return out
+
+    patent_lookup, accession_app_lookup = _build_source_row_lookup(canonical_df)
+
+    title_en: list[str] = []
+    title_dwpi: list[str] = []
+    assignee_dwpi: list[str] = []
+    applicant_rights: list[str] = []
+    priority_info: list[str] = []
+    family_members: list[str] = []
+    five_alive: list[str] = []
+    five_dead: list[str] = []
+    family_other: list[str] = []
+
+    for _, row in out.iterrows():
+        source_row = _resolve_source_row(row, patent_lookup, accession_app_lookup)
+        if source_row is None:
+            title_en.append("")
+            title_dwpi.append("")
+            assignee_dwpi.append("")
+            applicant_rights.append("")
+            priority_info.append("")
+            family_members.append("")
+            five_alive.append("")
+            five_dead.append("")
+            family_other.append("")
+            continue
+
+        title_en.append(_as_text(source_row.get("title_english", "")))
+        title_dwpi.append(_as_text(source_row.get("title_dwpi", "")))
+        assignee_dwpi.append(_as_text(source_row.get("assignee_dwpi", "")))
+        applicant_rights.append(_compose_applicant_rights_holder(source_row))
+        priority_info.append(_pair_priority_info(source_row.get("priority_number", ""), source_row.get("priority_date", "")))
+        family_members.append(_as_text(source_row.get("dwpi_family_members", "")))
+
+        alive_text, dead_text, other_text = _split_family_members_by_status(
+            source_row.get("dwpi_family_members_status", "")
+        )
+        five_alive.append(alive_text)
+        five_dead.append(dead_text)
+        family_other.append(other_text)
+
+    out["タイトル（英語）"] = title_en
+    out["タイトル - DWPI"] = title_dwpi
+    out["出願人/権利者"] = applicant_rights
+    out["譲受人 - DWPI"] = assignee_dwpi
+    out["優先権情報"] = priority_info
+    out["DWPI ファミリーメンバー"] = family_members
+    out["五庁有効ファミリ"] = five_alive
+    out["五庁失効ファミリ"] = five_dead
+    out["その他ファミリ"] = family_other
+    return out
+
+
+def _build_source_row_lookup(canonical_df: pd.DataFrame) -> tuple[dict[str, dict[str, object]], dict[tuple[str, str], dict[str, object]]]:
+    patent_lookup: dict[str, dict[str, object]] = {}
+    accession_app_lookup: dict[tuple[str, str], dict[str, object]] = {}
+
+    for _, row in canonical_df.iterrows():
+        row_dict = row.to_dict()
+        accession = _as_text(row_dict.get("accession_number", ""))
+        app_no = _as_text(row_dict.get("application_number", ""))
+        if accession or app_no:
+            key = (accession, app_no)
+            if key not in accession_app_lookup:
+                accession_app_lookup[key] = row_dict
+
+        for col in ["publication_number", "registration_number"]:
+            patent_no = _as_text(row_dict.get(col, ""))
+            if patent_no and patent_no not in patent_lookup:
+                patent_lookup[patent_no] = row_dict
+
+    return patent_lookup, accession_app_lookup
+
+
+def _resolve_source_row(
+    selected_row: pd.Series,
+    patent_lookup: dict[str, dict[str, object]],
+    accession_app_lookup: dict[tuple[str, str], dict[str, object]],
+) -> dict[str, object] | None:
+    selected_no = _as_text(selected_row.get("selected_patent_number", ""))
+    if selected_no and selected_no in patent_lookup:
+        return patent_lookup[selected_no]
+
+    for col in ["publication_number", "registration_number"]:
+        patent_no = _as_text(selected_row.get(col, ""))
+        if patent_no and patent_no in patent_lookup:
+            return patent_lookup[patent_no]
+
+    accession = _as_text(selected_row.get("accession_number", ""))
+    app_no = _as_text(selected_row.get("application_number", ""))
+    key = (accession, app_no)
+    return accession_app_lookup.get(key)
+
+
+def _compose_applicant_rights_holder(source_row: dict[str, object]) -> str:
+    for col in ["assignee_standardized", "assignee_applicant", "assignee_dwpi"]:
+        raw = _as_text(source_row.get(col, ""))
+        if not raw:
+            continue
+
+        candidates = _split_pipe_values(raw)
+        cleaned: list[str] = []
+        for candidate in candidates:
+            core = candidate.split(",", 1)[0].strip()
+            if not core:
+                continue
+            if _contains_cjk(core):
+                continue
+            cleaned.append(core)
+
+        joined = _join_unique_non_empty(cleaned)
+        if joined:
+            return joined
+
+    return ""
+
+
+def _pair_priority_info(priority_numbers: object, priority_dates: object) -> str:
+    numbers = _split_pipe_values(priority_numbers)
+    dates = _split_pipe_values(priority_dates)
+    if not numbers or not dates:
+        return ""
+
+    pairs: list[str] = []
+    for number, date_text in zip(numbers, dates):
+        date_value = pd.to_datetime(date_text, errors="coerce")
+        normalized_date = date_value.strftime("%Y-%m-%d") if not pd.isna(date_value) else date_text
+        pairs.append(f"{number}({normalized_date})")
+
+    return _join_unique_non_empty(pairs)
+
+
+def _split_family_members_by_status(status_text: object) -> tuple[str, str, str]:
+    alive_members: list[str] = []
+    dead_members: list[str] = []
+    other_members: list[str] = []
+
+    for token in _split_pipe_values(status_text):
+        member_no, status = _extract_family_member_and_status(token)
+        if not member_no:
+            continue
+
+        country = _extract_country_from_number(member_no)
+        status_lower = status.lower()
+        if country in FIVE_OFFICE_COUNTRIES and status_lower == "alive":
+            alive_members.append(member_no)
+        elif country in FIVE_OFFICE_COUNTRIES and status_lower == "dead":
+            dead_members.append(member_no)
+        else:
+            other_members.append(member_no)
+
+    return (
+        _join_unique_non_empty(alive_members),
+        _join_unique_non_empty(dead_members),
+        _join_unique_non_empty(other_members),
+    )
+
+
+def _extract_family_member_and_status(token: str) -> tuple[str, str]:
+    text = str(token or "").strip()
+    if not text:
+        return "", ""
+
+    match = re.match(r"^(.*?)\s+([A-Za-z]+)$", text)
+    if match:
+        member_no = match.group(1).strip()
+        status = match.group(2).strip()
+        return member_no, status
+
+    return text, ""
+
+
+def _split_pipe_values(value: object) -> list[str]:
+    text = _as_text(value)
+    if not text:
+        return []
+    return [item.strip() for item in text.split("|") if item.strip()]
+
+
+def _as_text(value: object) -> str:
+    if value is None:
+        return ""
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def _contains_cjk(value: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]", value))
+
+
+def _join_unique_non_empty(values: list[str]) -> str:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        v = str(value or "").strip()
+        if not v or v in seen:
+            continue
+        seen.add(v)
+        ordered.append(v)
+    return " | ".join(ordered)
 
 
 def _resolve_selected_legal_status(row: pd.Series, lookup: dict[str, str]) -> str:

@@ -30,6 +30,11 @@ HEADER_HINTS = {
     "title(english)",
     "タイトル（英語）",
     "title-dwpi",
+    "譲受人 - 標準化",
+    "譲受人/出願人",
+    "譲受人 - dwpi",
+    "dwpiファミリーメンバー",
+    "dwpiファミリーメンバー有効/無効",
 }
 
 
@@ -90,6 +95,15 @@ def canonicalize_dataframe(
         "kind",
         "accession_number",
         "family_id",
+        "title_english",
+        "title_dwpi",
+        "assignee_standardized",
+        "assignee_applicant",
+        "assignee_dwpi",
+        "priority_number",
+        "priority_date",
+        "dwpi_family_members",
+        "dwpi_family_members_status",
     ]:
         out[col] = out[col].map(_normalize_text)
 

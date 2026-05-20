@@ -29,6 +29,19 @@ CANONICAL_COLUMNS = {
     ],
     "family_id": ["family_id", "ファミリID", "ファミリーID"],
     "country_code": ["country_code", "国コード", "country"],
+    "title_english": ["title_english", "title(english)", "タイトル（英語）", "Title (English)"],
+    "title_dwpi": ["title_dwpi", "title-dwpi", "タイトル - DWPI", "Title - DWPI"],
+    "assignee_standardized": ["assignee_standardized", "譲受人 - 標準化", "Assignee Standardized"],
+    "assignee_applicant": ["assignee_applicant", "譲受人/出願人", "Assignee/Applicant"],
+    "assignee_dwpi": ["assignee_dwpi", "譲受人 - DWPI", "Assignee - DWPI"],
+    "priority_number": ["priority_number", "prioritynumber", "優先権主張番号", "Priority Number"],
+    "priority_date": ["priority_date", "prioritydate", "優先権主張日", "Priority Date"],
+    "dwpi_family_members": ["dwpi_family_members", "DWPI ファミリーメンバー", "DWPI Family Members"],
+    "dwpi_family_members_status": [
+        "dwpi_family_members_status",
+        "DWPI ファミリーメンバー 有効/無効",
+        "DWPI Family Members Alive/Dead",
+    ],
 }
 
 EXCLUDE_STATUS_TOKENS = {"失効", "無効", "expired", "invalid", "dead"}
