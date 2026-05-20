@@ -63,8 +63,8 @@ with st.expander("終了日条件の設定", expanded=enable_end_date):
     end_date_value = date_end_col2.date_input("終了日", value=default_end_date, disabled=not enable_end_date)
 
 st.subheader("選択条件")
-treat_wo_republication_as_jp = st.checkbox("再公表(元WO)をJPとして扱う", value=False)
-treat_wo_prior_republication_as_jp = st.checkbox("先行再公表(WO)をJPとして扱う", value=False)
+treat_wo_republication_as_jp = st.checkbox("再公表(元WO)をJPとして扱う", value=True)
+treat_wo_prior_republication_as_jp = st.checkbox("先行再公表(WO)をJPとして扱う", value=True)
 country_priority_raw = st.text_input("国優先順位 (カンマ区切り)", value="JP,US,EP,WO,CN,KR")
 
 

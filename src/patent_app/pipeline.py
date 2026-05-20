@@ -36,6 +36,8 @@ def run_selection_pipeline(
     no_acc_df = _extract_no_acc(working)
     legal_status_lookup = _build_legal_status_lookup(working)
     paired = _pair_publication_registration_by_application(working)
+    patent_application_date_lookup = _build_patent_application_date_lookup(paired)
+    patent_date_lookup = _build_patent_publication_date_lookup(paired)
     narrowed = _apply_one_family_one_country(paired, config.country_priority)
 
     if config.mode == "family":
@@ -71,6 +73,8 @@ def run_selection_pipeline(
         lambda row: _resolve_selected_patent_number(row, config.priority_basis),
         axis=1,
     )
+    selected = _resolve_application_date_from_selected_patent(selected, patent_application_date_lookup)
+    selected = _resolve_publication_date_from_selected_patent(selected, patent_date_lookup)
     selected["legal_status"] = selected.apply(
         lambda row: _resolve_selected_legal_status(row, legal_status_lookup),
         axis=1,
@@ -337,12 +341,26 @@ def _apply_wo_prior_republication_as_jp(
     matched_index = merged.index[matched]
     out.loc[matched_index, "_country_priority_code"] = "JP"
 
-    matched_rows = merged.loc[matched, ["application_number", "application_number_jp"]].copy()
-    wo_blank = matched_rows["application_number"].fillna("").astype(str).str.strip().eq("")
+    matched_rows = merged.loc[matched, ["application_number_jp"]].copy()
     jp_has = matched_rows["application_number_jp"].fillna("").astype(str).str.strip().ne("")
-    fill_index = matched_rows.index[wo_blank & jp_has]
+    fill_index = matched_rows.index[jp_has]
     if len(fill_index) > 0:
         out.loc[fill_index, "application_number"] = matched_rows.loc[fill_index, "application_number_jp"]
+
+    # Drop matched JP A1 rows so they are never selected
+    matched_pairs = set(
+        zip(merged.loc[matched, "accession_number"], merged.loc[matched, "_pub_body"])
+    )
+    jp_a1_indices = out.index[jp_a1_mask]
+    jp_pub_body_vals = pub_body.reindex(jp_a1_indices)
+    jp_accession_vals = out.loc[jp_a1_indices, "accession_number"]
+    jp_to_drop = [
+        idx
+        for idx in jp_a1_indices
+        if (jp_accession_vals.loc[idx], jp_pub_body_vals.loc[idx]) in matched_pairs
+    ]
+    if jp_to_drop:
+        out = out.drop(index=jp_to_drop)
 
     return out
 
@@ -569,6 +587,74 @@ def _build_legal_status_lookup(df: pd.DataFrame) -> dict[str, str]:
                 lookup[patent_no] = status
 
     return lookup
+
+
+def _build_patent_publication_date_lookup(df: pd.DataFrame) -> dict[str, object]:
+    lookup: dict[str, object] = {}
+
+    for _, row in df.iterrows():
+        publication_date = row.get("publication_date")
+        for col in ["publication_number", "registration_number"]:
+            patent_no = str(row.get(col, "") or "").strip()
+            if not patent_no:
+                continue
+
+            prev_date = lookup.get(patent_no)
+            if prev_date is None or pd.isna(prev_date):
+                lookup[patent_no] = publication_date
+                continue
+
+            if publication_date is not None and not pd.isna(publication_date) and publication_date > prev_date:
+                lookup[patent_no] = publication_date
+
+    return lookup
+
+
+def _build_patent_application_date_lookup(df: pd.DataFrame) -> dict[str, object]:
+    lookup: dict[str, object] = {}
+
+    for _, row in df.iterrows():
+        application_date = row.get("application_date")
+        for col in ["publication_number", "registration_number"]:
+            patent_no = str(row.get(col, "") or "").strip()
+            if not patent_no:
+                continue
+
+            prev_date = lookup.get(patent_no)
+            if prev_date is None or pd.isna(prev_date):
+                lookup[patent_no] = application_date
+                continue
+
+            if application_date is not None and not pd.isna(application_date) and application_date > prev_date:
+                lookup[patent_no] = application_date
+
+    return lookup
+
+
+def _resolve_application_date_from_selected_patent(selected: pd.DataFrame, lookup: dict[str, object]) -> pd.DataFrame:
+    out = selected.copy()
+
+    def _resolve(row: pd.Series) -> object:
+        selected_no = str(row.get("selected_patent_number", "") or "").strip()
+        if selected_no and selected_no in lookup:
+            return lookup[selected_no]
+        return row.get("application_date")
+
+    out["application_date"] = out.apply(_resolve, axis=1)
+    return out
+
+
+def _resolve_publication_date_from_selected_patent(selected: pd.DataFrame, lookup: dict[str, object]) -> pd.DataFrame:
+    out = selected.copy()
+
+    def _resolve(row: pd.Series) -> object:
+        selected_no = str(row.get("selected_patent_number", "") or "").strip()
+        if selected_no and selected_no in lookup:
+            return lookup[selected_no]
+        return row.get("publication_date")
+
+    out["publication_date"] = out.apply(_resolve, axis=1)
+    return out
 
 
 def _resolve_selected_legal_status(row: pd.Series, lookup: dict[str, str]) -> str:

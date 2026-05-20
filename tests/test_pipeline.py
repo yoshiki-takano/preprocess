@@ -553,6 +553,99 @@ def test_leading_republish_wo_can_be_treated_as_jp_and_get_application_number_fr
     assert selected.iloc[0]["application_number"] == "APP_FROM_JPA1"
 
 
+def test_leading_republish_wo_application_number_is_always_overwritten_by_jp_a1() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "WO_ORIGINAL_APPNO",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "WO2024123456A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-03-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_LEADING_OVERWRITE",
+                "family_id": "F_LEADING_OVERWRITE",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "APP_FROM_JPA1",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "JP2024123456A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_LEADING_OVERWRITE",
+                "family_id": "F_LEADING_OVERWRITE",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US", "WO"],
+        treat_wo_prior_republication_as_jp=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "WO2024123456A1"
+    assert selected.iloc[0]["application_number"] == "APP_FROM_JPA1"
+
+
+def test_leading_republish_jp_a1_is_excluded_even_when_it_has_later_publication_date() -> None:
+    """JP A1 should be dropped when its number body matches a WO A1, even if JP A1 has a later date."""
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "WO_APP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "WO2024999999A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-01-15"),  # earlier
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_JP_DROP",
+                "family_id": "F_JP_DROP",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "JP_APP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "JP2024999999A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-06-01"),  # later — would win without dropping
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_JP_DROP",
+                "family_id": "F_JP_DROP",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US", "WO"],
+        treat_wo_prior_republication_as_jp=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "WO2024999999A1"
+    assert selected.iloc[0]["application_number"] == "JP_APP"
+
+
 def test_republish_rule_takes_precedence_when_both_toggles_are_enabled() -> None:
     df = pd.DataFrame(
         [
@@ -891,3 +984,93 @@ def test_pairing_prefers_smaller_registration_revision_when_dates_tie() -> None:
 
     assert len(selected) == 1
     assert selected.iloc[0]["registration_number"] == "WO8888888B2"
+
+
+def test_publication_date_is_resolved_from_selected_patent_number() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_DATE",
+                "application_date": pd.Timestamp("2020-02-21"),
+                "publication_number": "JP2020189179A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-09-24"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_DATE",
+                "family_id": "F_DATE",
+                "country_code": "JP",
+            },
+            {
+                "application_number": "APP_DATE",
+                "application_date": pd.Timestamp("2020-02-21"),
+                "publication_number": "",
+                "registration_number": "JP07524160B2",
+                "publication_date": pd.Timestamp("2024-07-29"),
+                "registration_date": pd.Timestamp("2024-07-29"),
+                "legal_status": "active",
+                "kind": "B2",
+                "accession_number": "ACC_DATE",
+                "family_id": "F_DATE",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="earliest",
+        country_priority=["JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
+    assert pd.to_datetime(selected.iloc[0]["publication_date"]) == pd.Timestamp("2024-07-29")
+
+
+def test_application_date_is_resolved_from_selected_patent_number() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_DATE_APP",
+                "application_date": pd.Timestamp("2020-02-21"),
+                "publication_number": "JP2020189179A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-09-24"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_DATE_APP",
+                "family_id": "F_DATE_APP",
+                "country_code": "JP",
+            },
+            {
+                "application_number": "APP_DATE_APP",
+                "application_date": pd.Timestamp("2021-09-20"),
+                "publication_number": "",
+                "registration_number": "JP07524160B2",
+                "publication_date": pd.Timestamp("2024-07-29"),
+                "registration_date": pd.Timestamp("2024-07-29"),
+                "legal_status": "active",
+                "kind": "B2",
+                "accession_number": "ACC_DATE_APP",
+                "family_id": "F_DATE_APP",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="earliest",
+        country_priority=["JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
+    assert pd.to_datetime(selected.iloc[0]["application_date"]) == pd.Timestamp("2021-09-20")
