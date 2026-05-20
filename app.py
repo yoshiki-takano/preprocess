@@ -242,7 +242,11 @@ if uploaded:
             )
 
             progress.progress(65, text="抽出ロジックを実行しています...")
-            selected_df, no_acc_df = run_selection_pipeline(canonical_df, cfg)
+            selected_df, no_acc_df = run_selection_pipeline(
+                canonical_df,
+                cfg,
+                progress_callback=lambda value, message: progress.progress(value, text=message),
+            )
             if "accession_number" in selected_df.columns:
                 selected_df = selected_df.sort_values(
                     by="accession_number",

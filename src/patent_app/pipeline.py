@@ -3,17 +3,27 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
 from .config import EXCLUDE_KIND_TOKENS, EXCLUDE_STATUS_TOKENS, NO_ACC_TOKENS
 from .models import SelectionConfig
 
+ProgressCallback = Callable[[int, str], None]
+
+
+def _notify_progress(progress_callback: ProgressCallback | None, value: int, message: str) -> None:
+    if progress_callback is not None:
+        progress_callback(value, message)
+
 
 def run_selection_pipeline(
     canonical_df: pd.DataFrame,
     config: SelectionConfig,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    _notify_progress(progress_callback, 66, "除外条件を適用しています...")
     working = _apply_exclusions(
         canonical_df,
         exclude_invalid=config.exclude_invalid,
@@ -23,21 +33,26 @@ def run_selection_pipeline(
         end_date_field=config.end_date_field,
         end_date=config.end_date,
     )
+    _notify_progress(progress_callback, 68, "再公表(元WO)ルールを適用しています...")
     working, repub_applied_mask = _apply_wo_republication_as_jp(
         working,
         treat_wo_republication_as_jp=config.treat_wo_republication_as_jp,
     )
+    _notify_progress(progress_callback, 70, "先行再公表(WO)ルールを適用しています...")
     working = _apply_wo_prior_republication_as_jp(
         working,
         treat_wo_prior_republication_as_jp=config.treat_wo_prior_republication_as_jp,
         skip_mask=repub_applied_mask,
     )
+    _notify_progress(progress_callback, 72, "JP X種の除外を適用しています...")
     working = _exclude_jp_x_s5(working)
+    _notify_progress(progress_callback, 73, "関連データを準備しています...")
     no_acc_df = _extract_no_acc(working)
     legal_status_lookup = _build_legal_status_lookup(working)
     paired = _pair_publication_registration_by_application(working)
     patent_application_date_lookup = _build_patent_application_date_lookup(working)
     patent_date_lookup = _build_patent_publication_date_lookup(working)
+    _notify_progress(progress_callback, 74, "国優先順位で候補を絞り込んでいます...")
     narrowed = _apply_one_family_one_country(paired, config.country_priority)
 
     if config.mode == "family":
@@ -45,13 +60,22 @@ def run_selection_pipeline(
     else:
         grouped = _assign_group_key(narrowed, "application_number")
 
+    _notify_progress(progress_callback, 75, "代表公報を選定しています...")
     selected_rows: list[pd.Series] = []
-    for _, group in grouped.groupby("_group_key", dropna=False):
+    grouped_items = list(grouped.groupby("_group_key", dropna=False))
+    total_groups = len(grouped_items)
+    step = max(1, total_groups // 8) if total_groups > 0 else 1
+    for idx, (_, group) in enumerate(grouped_items, start=1):
         selected_rows.append(_select_representative(group, config))
+        if total_groups > 0 and (idx == 1 or idx == total_groups or idx % step == 0):
+            value = 75 + int((idx / total_groups) * 7)
+            _notify_progress(progress_callback, value, f"代表公報を選定しています... ({idx}/{total_groups})")
 
     if not selected_rows:
+        _notify_progress(progress_callback, 83, "抽出結果を整形しています...")
         return pd.DataFrame(columns=canonical_df.columns), no_acc_df
 
+    _notify_progress(progress_callback, 83, "抽出結果を整形しています...")
     selected = pd.DataFrame(selected_rows).drop(
         columns=[
             "_group_key",
