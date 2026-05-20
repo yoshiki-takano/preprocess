@@ -78,7 +78,6 @@ def _render_paginated_dataframe(
     df,
     section_title: str,
     key_prefix: str,
-    default_page_size: int,
 ) -> None:
     st.subheader(section_title)
     total_rows = len(df)
@@ -88,14 +87,21 @@ def _render_paginated_dataframe(
         st.dataframe(df, width="stretch")
         return
 
+    query_key = f"{key_prefix}_search_query"
+    target_key = f"{key_prefix}_search_target"
+    if query_key not in st.session_state:
+        st.session_state[query_key] = ""
+
     search_cols = ["(全列)"] + list(df.columns)
-    s1, s2 = st.columns([2, 2])
-    search_query = s1.text_input("全件検索", value="", key=f"{key_prefix}_search_query")
-    search_target = s2.selectbox("検索対象列", search_cols, index=0, key=f"{key_prefix}_search_target")
+    if target_key not in st.session_state or st.session_state[target_key] not in search_cols:
+        st.session_state[target_key] = "(全列)"
+
+    search_query = st.session_state[query_key]
+    search_target = st.session_state[target_key]
 
     filtered_df = df
-    if search_query.strip():
-        q = search_query.strip()
+    if str(search_query).strip():
+        q = str(search_query).strip()
         normalized = df.fillna("").astype(str)
         if search_target == "(全列)":
             matched = normalized.apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)
@@ -105,32 +111,11 @@ def _render_paginated_dataframe(
 
     filtered_rows = len(filtered_df)
     st.caption(f"検索結果: {filtered_rows:,} / {total_rows:,} 件")
+    st.dataframe(filtered_df, width="stretch")
 
-    if filtered_rows == 0:
-        st.dataframe(filtered_df, width="stretch")
-        return
-
-    page_sizes = [100, 300, 500, 1000]
-    default_index = page_sizes.index(default_page_size) if default_page_size in page_sizes else 0
-    c1, c2, c3 = st.columns([1, 1, 2])
-    page_size = c1.selectbox("1ページ件数", page_sizes, index=default_index, key=f"{key_prefix}_page_size")
-
-    total_pages = (filtered_rows + page_size - 1) // page_size
-    page = int(
-        c2.number_input(
-            "ページ",
-            min_value=1,
-            max_value=total_pages,
-            value=1,
-            step=1,
-            key=f"{key_prefix}_page",
-        )
-    )
-    start = (page - 1) * page_size
-    end = min(start + page_size, filtered_rows)
-    c3.write(f"表示範囲: {start + 1:,} - {end:,} / {filtered_rows:,} 件")
-
-    st.dataframe(filtered_df.iloc[start:end], width="stretch")
+    s1, s2 = st.columns([2, 2])
+    s1.text_input("全件検索", value=st.session_state[query_key], key=query_key)
+    s2.selectbox("検索対象列", search_cols, key=target_key)
 
 
 if "priority_basis" not in st.session_state:
@@ -174,7 +159,7 @@ if uploaded:
         st.session_state["result_error"] = None
 
     raw_df = load_dataframe(uploaded.name, uploaded.getvalue())
-    _render_paginated_dataframe(raw_df, "入力プレビュー", "raw_preview", default_page_size=100)
+    _render_paginated_dataframe(raw_df, "入力プレビュー", "raw_preview")
 
     source_columns = list(raw_df.columns)
 
@@ -240,7 +225,7 @@ if uploaded:
         m1.metric("抽出件数", f"{len(selected_df):,}")
         m2.metric("no_acc件数", f"{len(no_acc_df):,}")
 
-        _render_paginated_dataframe(selected_df, "抽出結果", "selected_preview", default_page_size=300)
+        _render_paginated_dataframe(selected_df, "抽出結果", "selected_preview")
 
         output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
         st.download_button(
