@@ -15,6 +15,7 @@ from patent_app.io_ops import (
     parse_country_priority,
     resolve_column_mapping,
 )
+from patent_app.config import NO_ACC_TOKENS
 from patent_app.models import SelectionConfig
 from patent_app.pipeline import run_selection_pipeline
 
@@ -78,10 +79,17 @@ def _render_paginated_dataframe(
     df,
     section_title: str,
     key_prefix: str,
+    family_count: int | None = None,
+    no_acc_count: int | None = None,
 ) -> None:
     st.subheader(section_title)
     total_rows = len(df)
-    st.write(f"Rows: {total_rows:,} / Cols: {len(df.columns)}")
+    parts = [f"Rows: {total_rows:,}", f"Cols: {len(df.columns)}"]
+    if family_count is not None:
+        parts.append(f"family数: {family_count:,}")
+    if no_acc_count is not None:
+        parts.append(f"no_acc数: {no_acc_count:,}")
+    st.write(" / ".join(parts))
 
     if total_rows == 0:
         st.dataframe(df, width="stretch")
@@ -99,6 +107,47 @@ def _render_paginated_dataframe(
     search_query = st.session_state[query_key]
     search_target = st.session_state[target_key]
 
+    info_col, search_col = st.columns([5, 2])
+    result_caption = info_col.empty()
+    with search_col:
+        s_query_col, s_target_col = st.columns([3, 2])
+        s_query_col.text_input("検索", value=st.session_state[query_key], key=query_key, placeholder="キーワード")
+        s_target_col.selectbox("対象", search_cols, key=target_key)
+
+
+def _find_accession_series(df):
+    candidates = [
+        "accession_number",
+        "DWPI accession number",
+        "dwpi accession number",
+        "DWPIアクセッション番号",
+        "DWPI アクセッション番号",
+    ]
+    for name in candidates:
+        if name in df.columns:
+            return df[name]
+
+    for col in df.columns:
+        col_text = str(col).lower().replace(" ", "")
+        if "dwpi" in col_text and "accession" in col_text:
+            return df[col]
+
+    return None
+
+
+def _compute_family_no_acc_counts(df) -> tuple[int | None, int | None]:
+    accession_series = _find_accession_series(df)
+    if accession_series is None:
+        return None, None
+
+    cleaned = accession_series.fillna("").astype(str).str.strip()
+    family_count = cleaned[cleaned.ne("")].nunique()
+    no_acc_count = cleaned.str.lower().isin(NO_ACC_TOKENS).sum()
+    return int(family_count), int(no_acc_count)
+
+    search_query = st.session_state[query_key]
+    search_target = st.session_state[target_key]
+
     filtered_df = df
     if str(search_query).strip():
         q = str(search_query).strip()
@@ -110,12 +159,8 @@ def _render_paginated_dataframe(
         filtered_df = df.loc[matched]
 
     filtered_rows = len(filtered_df)
-    st.caption(f"検索結果: {filtered_rows:,} / {total_rows:,} 件")
+    result_caption.caption(f"検索結果: {filtered_rows:,} / {total_rows:,} 件")
     st.dataframe(filtered_df, width="stretch")
-
-    s1, s2 = st.columns([2, 2])
-    s1.text_input("全件検索", value=st.session_state[query_key], key=query_key)
-    s2.selectbox("検索対象列", search_cols, key=target_key)
 
 
 if "priority_basis" not in st.session_state:
@@ -159,7 +204,14 @@ if uploaded:
         st.session_state["result_error"] = None
 
     raw_df = load_dataframe(uploaded.name, uploaded.getvalue())
-    _render_paginated_dataframe(raw_df, "入力プレビュー", "raw_preview")
+    raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(raw_df)
+    _render_paginated_dataframe(
+        raw_df,
+        "入力プレビュー",
+        "raw_preview",
+        family_count=raw_family_count,
+        no_acc_count=raw_no_acc_count,
+    )
 
     source_columns = list(raw_df.columns)
 
@@ -225,7 +277,14 @@ if uploaded:
         m1.metric("抽出件数", f"{len(selected_df):,}")
         m2.metric("no_acc件数", f"{len(no_acc_df):,}")
 
-        _render_paginated_dataframe(selected_df, "抽出結果", "selected_preview")
+        selected_family_count, _ = _compute_family_no_acc_counts(selected_df)
+        _render_paginated_dataframe(
+            selected_df,
+            "抽出結果",
+            "selected_preview",
+            family_count=selected_family_count,
+            no_acc_count=len(no_acc_df),
+        )
 
         output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
         st.download_button(
