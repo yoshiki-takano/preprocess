@@ -78,6 +78,16 @@ if "priority_basis" not in st.session_state:
     st.session_state["priority_basis"] = "registration"
 if "date_policy" not in st.session_state:
     _sync_date_policy_from_priority_basis()
+if "selected_df" not in st.session_state:
+    st.session_state["selected_df"] = None
+if "no_acc_df" not in st.session_state:
+    st.session_state["no_acc_df"] = None
+if "output_bytes" not in st.session_state:
+    st.session_state["output_bytes"] = None
+if "result_error" not in st.session_state:
+    st.session_state["result_error"] = None
+if "uploaded_name" not in st.session_state:
+    st.session_state["uploaded_name"] = None
 
 
 col1, col2, col3 = st.columns(3)
@@ -97,6 +107,13 @@ date_policy = col3.selectbox(
 )
 
 if uploaded:
+    if st.session_state["uploaded_name"] != uploaded.name:
+        st.session_state["uploaded_name"] = uploaded.name
+        st.session_state["selected_df"] = None
+        st.session_state["no_acc_df"] = None
+        st.session_state["output_bytes"] = None
+        st.session_state["result_error"] = None
+
     raw_df = load_dataframe(uploaded.name, uploaded.getvalue())
     st.subheader("入力プレビュー")
     st.write(f"Rows: {len(raw_df):,} / Cols: {len(raw_df.columns)}")
@@ -124,28 +141,46 @@ if uploaded:
                 end_date=end_date_value if enable_end_date else None,
             )
             selected_df, no_acc_df = run_selection_pipeline(canonical_df, cfg)
-
-            st.success("抽出が完了しました。")
-            m1, m2 = st.columns(2)
-            m1.metric("抽出件数", f"{len(selected_df):,}")
-            m2.metric("no_acc件数", f"{len(no_acc_df):,}")
-
-            st.subheader("抽出結果")
-            st.dataframe(selected_df.head(300), width='stretch')
+            if "accession_number" in selected_df.columns:
+                selected_df = selected_df.sort_values(
+                    by="accession_number",
+                    ascending=False,
+                    na_position="last",
+                    kind="stable",
+                ).reset_index(drop=True)
 
             output_bytes = build_xlsx_bytes(
                 selected_df,
                 no_acc_df,
                 template.getvalue() if template else None,
             )
-            output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
-            st.download_button(
-                label="結果をダウンロード (.xlsx)",
-                data=output_bytes,
-                file_name=output_file_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+            st.session_state["selected_df"] = selected_df
+            st.session_state["no_acc_df"] = no_acc_df
+            st.session_state["output_bytes"] = output_bytes
+            st.session_state["result_error"] = None
         except Exception as exc:
-            st.error(f"処理に失敗しました: {exc}")
+            st.session_state["result_error"] = str(exc)
+
+    if st.session_state["result_error"]:
+        st.error(f"処理に失敗しました: {st.session_state['result_error']}")
+
+    if st.session_state["selected_df"] is not None and st.session_state["no_acc_df"] is not None:
+        selected_df = st.session_state["selected_df"]
+        no_acc_df = st.session_state["no_acc_df"]
+        st.success("抽出が完了しました。")
+        m1, m2 = st.columns(2)
+        m1.metric("抽出件数", f"{len(selected_df):,}")
+        m2.metric("no_acc件数", f"{len(no_acc_df):,}")
+
+        st.subheader("抽出結果")
+        st.dataframe(selected_df.head(300), width='stretch')
+
+        output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
+        st.download_button(
+            label="結果をダウンロード (.xlsx)",
+            data=st.session_state["output_bytes"],
+            file_name=output_file_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 else:
     st.info("入力ファイルを選択してください。")
