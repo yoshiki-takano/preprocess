@@ -36,8 +36,8 @@ def run_selection_pipeline(
     no_acc_df = _extract_no_acc(working)
     legal_status_lookup = _build_legal_status_lookup(working)
     paired = _pair_publication_registration_by_application(working)
-    patent_application_date_lookup = _build_patent_application_date_lookup(paired)
-    patent_date_lookup = _build_patent_publication_date_lookup(paired)
+    patent_application_date_lookup = _build_patent_application_date_lookup(working)
+    patent_date_lookup = _build_patent_publication_date_lookup(working)
     narrowed = _apply_one_family_one_country(paired, config.country_priority)
 
     if config.mode == "family":
@@ -560,7 +560,13 @@ def _resolve_selected_patent_number(row: pd.Series, priority_basis: str) -> str:
 
 
 def _reorder_selected_columns(df: pd.DataFrame) -> pd.DataFrame:
-    preferred = ["accession_number", "selected_patent_number", "application_number"]
+    preferred = [
+        "accession_number",
+        "selected_patent_number",
+        "application_number",
+        "application_date",
+        "publication_date",
+    ]
     leading = [c for c in preferred if c in df.columns]
     trailing = [c for c in df.columns if c not in leading]
     return df[leading + trailing]
