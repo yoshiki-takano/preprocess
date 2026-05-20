@@ -86,14 +86,14 @@ def _render_paginated_dataframe(
     total_rows = len(df)
     parts = [f"Rows: {total_rows:,}", f"Cols: {len(df.columns)}"]
     if family_count is not None:
-        parts.append(f"family数: {family_count:,}")
+        parts.append(f"family: {family_count:,}")
     if no_acc_count is not None:
-        parts.append(f"no_acc数: {no_acc_count:,}")
+        parts.append(f"no_acc: {no_acc_count:,}")
     st.write(" / ".join(parts))
 
     if total_rows == 0:
         st.dataframe(df, width="stretch")
-        return
+        return  
 
     query_key = f"{key_prefix}_search_query"
     target_key = f"{key_prefix}_search_target"
