@@ -744,3 +744,150 @@ def test_us_falls_back_to_raw_application_number_when_date_is_missing() -> None:
     selected, _ = run_selection_pipeline(df, cfg)
 
     assert len(selected) == 2
+
+
+def test_revision_prefers_smaller_publication_revision_for_all_selection_combinations() -> None:
+    base_rows = [
+        {
+            "application_number": "APP_REV",
+            "application_date": pd.Timestamp("2024-01-01"),
+            "publication_number": "WO2024123456A10",
+            "registration_number": "WO9999999B1",
+            "publication_date": pd.Timestamp("2024-05-01"),
+            "registration_date": pd.Timestamp("2025-01-01"),
+            "legal_status": "active",
+            "kind": "A10",
+            "accession_number": "ACC_REV_PUB",
+            "family_id": "F_REV_PUB",
+            "country_code": "WO",
+        },
+        {
+            "application_number": "APP_REV",
+            "application_date": pd.Timestamp("2024-01-01"),
+            "publication_number": "WO2024123456A2",
+            "registration_number": "WO9999999B1",
+            "publication_date": pd.Timestamp("2024-05-01"),
+            "registration_date": pd.Timestamp("2025-01-01"),
+            "legal_status": "active",
+            "kind": "A2",
+            "accession_number": "ACC_REV_PUB",
+            "family_id": "F_REV_PUB",
+            "country_code": "WO",
+        },
+    ]
+
+    for mode in ["family", "application"]:
+        for priority_basis in ["registration", "publication"]:
+            for date_policy in ["latest", "earliest"]:
+                cfg = SelectionConfig(
+                    mode=mode,
+                    priority_basis=priority_basis,
+                    date_policy=date_policy,
+                    country_priority=["WO", "JP", "US"],
+                )
+                selected, _ = run_selection_pipeline(pd.DataFrame(base_rows), cfg)
+
+                assert len(selected) == 1
+                assert selected.iloc[0]["publication_number"] == "WO2024123456A2"
+
+
+def test_revision_prefers_smaller_registration_revision_for_all_selection_combinations() -> None:
+    base_rows = [
+        {
+            "application_number": "APP_REV_REG",
+            "application_date": pd.Timestamp("2024-01-01"),
+            "publication_number": "WO2024123456A1",
+            "registration_number": "WO7777777B10",
+            "publication_date": pd.Timestamp("2024-05-01"),
+            "registration_date": pd.Timestamp("2025-01-01"),
+            "legal_status": "active",
+            "kind": "B10",
+            "accession_number": "ACC_REV_REG",
+            "family_id": "F_REV_REG",
+            "country_code": "WO",
+        },
+        {
+            "application_number": "APP_REV_REG",
+            "application_date": pd.Timestamp("2024-01-01"),
+            "publication_number": "WO2024123456A1",
+            "registration_number": "WO7777777B2",
+            "publication_date": pd.Timestamp("2024-05-01"),
+            "registration_date": pd.Timestamp("2025-01-01"),
+            "legal_status": "active",
+            "kind": "B2",
+            "accession_number": "ACC_REV_REG",
+            "family_id": "F_REV_REG",
+            "country_code": "WO",
+        },
+    ]
+
+    for mode in ["family", "application"]:
+        for priority_basis in ["registration", "publication"]:
+            for date_policy in ["latest", "earliest"]:
+                cfg = SelectionConfig(
+                    mode=mode,
+                    priority_basis=priority_basis,
+                    date_policy=date_policy,
+                    country_priority=["WO", "JP", "US"],
+                )
+                selected, _ = run_selection_pipeline(pd.DataFrame(base_rows), cfg)
+
+                assert len(selected) == 1
+                assert selected.iloc[0]["registration_number"] == "WO7777777B2"
+
+
+def test_pairing_prefers_smaller_registration_revision_when_dates_tie() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "PAIR_REV",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "",
+                "registration_number": "WO8888888B10",
+                "publication_date": pd.NaT,
+                "registration_date": pd.Timestamp("2025-01-01"),
+                "legal_status": "active",
+                "kind": "B10",
+                "accession_number": "ACC_PAIR_REV",
+                "family_id": "F_PAIR_REV",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "PAIR_REV",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "",
+                "registration_number": "WO8888888B2",
+                "publication_date": pd.NaT,
+                "registration_date": pd.Timestamp("2025-01-01"),
+                "legal_status": "active",
+                "kind": "B2",
+                "accession_number": "ACC_PAIR_REV",
+                "family_id": "F_PAIR_REV",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "PAIR_REV",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "WO2024999999A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-05-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_PAIR_REV",
+                "family_id": "F_PAIR_REV",
+                "country_code": "WO",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["WO"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["registration_number"] == "WO8888888B2"

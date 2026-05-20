@@ -58,6 +58,12 @@ def run_selection_pipeline(
             "_has_primary",
             "_rank_date",
             "_pairing_application_key",
+            "_pub_base",
+            "_pub_revision",
+            "_pub_raw",
+            "_reg_base",
+            "_reg_revision",
+            "_reg_raw",
         ],
         errors="ignore",
     )
@@ -392,9 +398,12 @@ def _pick_best_record(group: pd.DataFrame, number_col: str, date_col: str) -> pd
     if candidates.empty:
         return None
 
-    ranked = candidates.sort_values(
-        by=[date_col, number_col],
-        ascending=[False, True],
+    number_sort = _build_revision_sort_columns(candidates[number_col], "num")
+    ranked_candidates = candidates.join(number_sort)
+
+    ranked = ranked_candidates.sort_values(
+        by=[date_col, "_num_base", "_num_revision", "_num_raw"],
+        ascending=[False, True, True, True],
         na_position="last",
     )
     return ranked.iloc[0]
@@ -454,16 +463,55 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     has_primary = ranked[primary_number_col].fillna("").astype(str).str.strip() != ""
     ranked["_has_primary"] = has_primary.astype(int)
     ranked["_rank_date"] = ranked["publication_date"]
+    ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
+    ranked = ranked.join(_build_revision_sort_columns(ranked["registration_number"], "reg"))
 
     ascending_date = config.date_policy == "earliest"
 
     ranked = ranked.sort_values(
-        by=["_has_primary", "_rank_date", "application_number", "publication_number", "registration_number"],
-        ascending=[False, ascending_date, True, True, True],
+        by=[
+            "_has_primary",
+            "_rank_date",
+            "application_number",
+            "_pub_base",
+            "_pub_revision",
+            "_pub_raw",
+            "_reg_base",
+            "_reg_revision",
+            "_reg_raw",
+        ],
+        ascending=[False, ascending_date, True, True, True, True, True, True, True],
         na_position="last",
     )
 
     return ranked.iloc[0]
+
+
+def _build_revision_sort_columns(series: pd.Series, prefix: str) -> pd.DataFrame:
+    normalized = series.fillna("").astype(str).str.strip().str.upper().str.replace(" ", "", regex=False)
+    parsed = normalized.map(_parse_revision_sort_parts)
+
+    out = pd.DataFrame(index=series.index)
+    out[f"_{prefix}_base"] = parsed.map(lambda item: item[0])
+    out[f"_{prefix}_revision"] = parsed.map(lambda item: item[1])
+    out[f"_{prefix}_raw"] = normalized
+    return out
+
+
+def _parse_revision_sort_parts(value: str) -> tuple[str, int]:
+    text = _normalize_publication_number(value)
+    if text == "":
+        return "", 999
+
+    match = re.match(r"^(.*?)([A-Z]+)(\d+)$", text)
+    if not match:
+        return text, 999
+
+    head, kind_symbol, revision = match.groups()
+    if not re.search(r"\d", head):
+        return text, 999
+
+    return f"{head}{kind_symbol}", int(revision)
 
 
 def _contains_exclude_status(value: str) -> bool:
