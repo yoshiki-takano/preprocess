@@ -74,6 +74,65 @@ def _sync_date_policy_from_priority_basis() -> None:
     )
 
 
+def _render_paginated_dataframe(
+    df,
+    section_title: str,
+    key_prefix: str,
+    default_page_size: int,
+) -> None:
+    st.subheader(section_title)
+    total_rows = len(df)
+    st.write(f"Rows: {total_rows:,} / Cols: {len(df.columns)}")
+
+    if total_rows == 0:
+        st.dataframe(df, width="stretch")
+        return
+
+    search_cols = ["(全列)"] + list(df.columns)
+    s1, s2 = st.columns([2, 2])
+    search_query = s1.text_input("全件検索", value="", key=f"{key_prefix}_search_query")
+    search_target = s2.selectbox("検索対象列", search_cols, index=0, key=f"{key_prefix}_search_target")
+
+    filtered_df = df
+    if search_query.strip():
+        q = search_query.strip()
+        normalized = df.fillna("").astype(str)
+        if search_target == "(全列)":
+            matched = normalized.apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)
+        else:
+            matched = normalized[search_target].str.contains(q, case=False, regex=False)
+        filtered_df = df.loc[matched]
+
+    filtered_rows = len(filtered_df)
+    st.caption(f"検索結果: {filtered_rows:,} / {total_rows:,} 件")
+
+    if filtered_rows == 0:
+        st.dataframe(filtered_df, width="stretch")
+        return
+
+    page_sizes = [100, 300, 500, 1000]
+    default_index = page_sizes.index(default_page_size) if default_page_size in page_sizes else 0
+    c1, c2, c3 = st.columns([1, 1, 2])
+    page_size = c1.selectbox("1ページ件数", page_sizes, index=default_index, key=f"{key_prefix}_page_size")
+
+    total_pages = (filtered_rows + page_size - 1) // page_size
+    page = int(
+        c2.number_input(
+            "ページ",
+            min_value=1,
+            max_value=total_pages,
+            value=1,
+            step=1,
+            key=f"{key_prefix}_page",
+        )
+    )
+    start = (page - 1) * page_size
+    end = min(start + page_size, filtered_rows)
+    c3.write(f"表示範囲: {start + 1:,} - {end:,} / {filtered_rows:,} 件")
+
+    st.dataframe(filtered_df.iloc[start:end], width="stretch")
+
+
 if "priority_basis" not in st.session_state:
     st.session_state["priority_basis"] = "registration"
 if "date_policy" not in st.session_state:
@@ -115,17 +174,21 @@ if uploaded:
         st.session_state["result_error"] = None
 
     raw_df = load_dataframe(uploaded.name, uploaded.getvalue())
-    st.subheader("入力プレビュー")
-    st.write(f"Rows: {len(raw_df):,} / Cols: {len(raw_df.columns)}")
-    st.dataframe(raw_df.head(100), width='stretch')
+    _render_paginated_dataframe(raw_df, "入力プレビュー", "raw_preview", default_page_size=100)
 
     source_columns = list(raw_df.columns)
 
     run_clicked = st.button("抽出実行", type="primary")
     if run_clicked:
+        progress = st.progress(0, text="抽出処理を開始しています...")
         try:
+            progress.progress(10, text="列マッピングを解決しています...")
             mapping = resolve_column_mapping(source_columns)
+
+            progress.progress(25, text="入力データを正規化しています...")
             canonical_df = canonicalize_dataframe(raw_df, mapping)
+
+            progress.progress(45, text="抽出条件を準備しています...")
             cfg = SelectionConfig(
                 mode=mode,
                 priority_basis=priority_basis,
@@ -140,6 +203,8 @@ if uploaded:
                 end_date_field=end_date_field,
                 end_date=end_date_value if enable_end_date else None,
             )
+
+            progress.progress(65, text="抽出ロジックを実行しています...")
             selected_df, no_acc_df = run_selection_pipeline(canonical_df, cfg)
             if "accession_number" in selected_df.columns:
                 selected_df = selected_df.sort_values(
@@ -149,6 +214,7 @@ if uploaded:
                     kind="stable",
                 ).reset_index(drop=True)
 
+            progress.progress(85, text="ダウンロード用ファイルを作成しています...")
             output_bytes = build_xlsx_bytes(
                 selected_df,
                 no_acc_df,
@@ -158,8 +224,10 @@ if uploaded:
             st.session_state["no_acc_df"] = no_acc_df
             st.session_state["output_bytes"] = output_bytes
             st.session_state["result_error"] = None
+            progress.progress(100, text="抽出が完了しました。")
         except Exception as exc:
             st.session_state["result_error"] = str(exc)
+            progress.progress(100, text="処理に失敗しました。")
 
     if st.session_state["result_error"]:
         st.error(f"処理に失敗しました: {st.session_state['result_error']}")
@@ -172,8 +240,7 @@ if uploaded:
         m1.metric("抽出件数", f"{len(selected_df):,}")
         m2.metric("no_acc件数", f"{len(no_acc_df):,}")
 
-        st.subheader("抽出結果")
-        st.dataframe(selected_df.head(300), width='stretch')
+        _render_paginated_dataframe(selected_df, "抽出結果", "selected_preview", default_page_size=300)
 
         output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
         st.download_button(
