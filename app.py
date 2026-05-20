@@ -84,7 +84,7 @@ def _render_paginated_dataframe(
 ) -> None:
     st.subheader(section_title)
     total_rows = len(df)
-    parts = [f"Rows: {total_rows:,}", f"Cols: {len(df.columns)}"]
+    parts = [f"Pubs: {total_rows:,}", f"Cols: {len(df.columns)}"]
     if family_count is not None:
         parts.append(f"family: {family_count:,}")
     if no_acc_count is not None:
@@ -113,6 +113,23 @@ def _render_paginated_dataframe(
         s_query_col, s_target_col = st.columns([3, 2])
         s_query_col.text_input("検索", value=st.session_state[query_key], key=query_key, placeholder="キーワード")
         s_target_col.selectbox("対象", search_cols, key=target_key)
+
+    search_query = st.session_state[query_key]
+    search_target = st.session_state[target_key]
+
+    filtered_df = df
+    if str(search_query).strip():
+        q = str(search_query).strip()
+        normalized = df.fillna("").astype(str)
+        if search_target == "(全列)":
+            matched = normalized.apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)
+        else:
+            matched = normalized[search_target].str.contains(q, case=False, regex=False)
+        filtered_df = df.loc[matched]
+
+    filtered_rows = len(filtered_df)
+    result_caption.caption(f"検索結果: {filtered_rows:,} / {total_rows:,} 件")
+    st.dataframe(filtered_df, width="stretch")
 
 
 def _find_accession_series(df):
@@ -144,23 +161,6 @@ def _compute_family_no_acc_counts(df) -> tuple[int | None, int | None]:
     family_count = cleaned[cleaned.ne("")].nunique()
     no_acc_count = cleaned.str.lower().isin(NO_ACC_TOKENS).sum()
     return int(family_count), int(no_acc_count)
-
-    search_query = st.session_state[query_key]
-    search_target = st.session_state[target_key]
-
-    filtered_df = df
-    if str(search_query).strip():
-        q = str(search_query).strip()
-        normalized = df.fillna("").astype(str)
-        if search_target == "(全列)":
-            matched = normalized.apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)
-        else:
-            matched = normalized[search_target].str.contains(q, case=False, regex=False)
-        filtered_df = df.loc[matched]
-
-    filtered_rows = len(filtered_df)
-    result_caption.caption(f"検索結果: {filtered_rows:,} / {total_rows:,} 件")
-    st.dataframe(filtered_df, width="stretch")
 
 
 if "priority_basis" not in st.session_state:
