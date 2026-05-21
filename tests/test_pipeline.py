@@ -553,7 +553,7 @@ def test_leading_republish_wo_can_be_treated_as_jp_and_get_application_number_fr
     assert selected.iloc[0]["application_number"] == "APP_FROM_JPA1"
 
 
-def test_leading_republish_wo_application_number_is_always_overwritten_by_jp_a1() -> None:
+def test_leading_republish_wo_application_number_is_preserved_when_original_exists() -> None:
     df = pd.DataFrame(
         [
             {
@@ -596,7 +596,7 @@ def test_leading_republish_wo_application_number_is_always_overwritten_by_jp_a1(
 
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "WO2024123456A1"
-    assert selected.iloc[0]["application_number"] == "APP_FROM_JPA1"
+    assert selected.iloc[0]["application_number"] == "WO_ORIGINAL_APPNO"
 
 
 def test_leading_republish_jp_a1_is_excluded_even_when_it_has_later_publication_date() -> None:
@@ -643,7 +643,7 @@ def test_leading_republish_jp_a1_is_excluded_even_when_it_has_later_publication_
 
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "WO2024999999A1"
-    assert selected.iloc[0]["application_number"] == "JP_APP"
+    assert selected.iloc[0]["application_number"] == "WO_APP"
 
 
 def test_republish_rule_takes_precedence_when_both_toggles_are_enabled() -> None:
@@ -703,7 +703,7 @@ def test_republish_rule_takes_precedence_when_both_toggles_are_enabled() -> None
 
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "WO1989000044A1"
-    assert selected.iloc[0]["application_number"] == "APP_FROM_JPA1"
+    assert selected.iloc[0]["application_number"] == "APP_FROM_JPX"
 
 
 def test_prior_republish_overwrite_runs_even_when_republish_skip_applies() -> None:
@@ -763,7 +763,7 @@ def test_prior_republish_overwrite_runs_even_when_republish_skip_applies() -> No
 
     assert len(selected) == 1
     wo_row = selected.loc[selected["publication_number"].eq("WO2020137282A1")].iloc[0]
-    assert wo_row["application_number"] == "JP_APP_A1"
+    assert wo_row["application_number"] == "WO_ORIGINAL_APP"
 
 
 def test_jp_x_is_excluded_before_country_priority() -> None:

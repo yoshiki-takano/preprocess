@@ -367,7 +367,11 @@ def _apply_wo_republication_as_jp(
 
         has_app = merged["application_number_jpx"].fillna("").astype(str).str.strip().ne("")
         if has_app.any():
-            out.loc[merged.index[has_app], "application_number"] = merged.loc[has_app, "application_number_jpx"]
+            target_idx = merged.index[has_app]
+            wo_empty = out.loc[target_idx, "application_number"].fillna("").astype(str).str.strip().eq("")
+            fill_idx = target_idx[wo_empty.values]
+            if len(fill_idx) > 0:
+                out.loc[fill_idx, "application_number"] = merged.loc[fill_idx, "application_number_jpx"]
 
     out.loc[repub_mask, "_country_priority_code"] = "JP"
     return out, repub_mask
@@ -421,20 +425,16 @@ def _apply_wo_prior_republication_as_jp(
     matched_index = merged.index[matched]
     matched_rows = merged.loc[matched, ["application_number_jp"]].copy()
     jp_has = matched_rows["application_number_jp"].fillna("").astype(str).str.strip().ne("")
-    fill_index = matched_rows.index[jp_has]
+    wo_empty = out.loc[matched_rows.index, "application_number"].fillna("").astype(str).str.strip().eq("")
+    fill_index = matched_rows.index[jp_has & wo_empty.values]
     if len(fill_index) > 0:
         out.loc[fill_index, "application_number"] = matched_rows.loc[fill_index, "application_number_jp"]
 
     matched_effect_mask = matched & ~effective_skip.reindex(merged.index, fill_value=False)
-    if not matched_effect_mask.any():
-        return out
 
-    matched_effect_index = merged.index[matched_effect_mask]
-    out.loc[matched_effect_index, "_country_priority_code"] = "JP"
-
-    # Drop matched JP A1 rows so they are never selected
-    matched_pairs = set(
-        zip(merged.loc[matched_effect_mask, "accession_number"], merged.loc[matched_effect_mask, "_pub_body"])
+    # 常に全マッチ対象の JP A1 を削除する（WO がすでに再公表ルールで処理済みでも同様）
+    matched_pairs_all = set(
+        zip(merged.loc[matched, "accession_number"], merged.loc[matched, "_pub_body"])
     )
     jp_a1_indices = out.index[jp_a1_mask]
     jp_pub_body_vals = pub_body.reindex(jp_a1_indices)
@@ -442,10 +442,17 @@ def _apply_wo_prior_republication_as_jp(
     jp_to_drop = [
         idx
         for idx in jp_a1_indices
-        if (jp_accession_vals.loc[idx], jp_pub_body_vals.loc[idx]) in matched_pairs
+        if (jp_accession_vals.loc[idx], jp_pub_body_vals.loc[idx]) in matched_pairs_all
     ]
     if jp_to_drop:
         out = out.drop(index=jp_to_drop)
+
+    # _country_priority_code は再公表ルール未適用の WO 行のみ更新する
+    if not matched_effect_mask.any():
+        return out
+
+    matched_effect_index = merged.index[matched_effect_mask]
+    out.loc[matched_effect_index, "_country_priority_code"] = "JP"
 
     return out
 
