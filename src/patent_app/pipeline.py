@@ -747,10 +747,13 @@ def _resolve_application_date_from_selected_patent(selected: pd.DataFrame, looku
     out = selected.copy()
 
     def _resolve(row: pd.Series) -> object:
+        own_date = row.get("application_date")
+        if own_date is not None and not pd.isna(own_date):
+            return own_date
         selected_no = str(row.get("selected_patent_number", "") or "").strip()
         if selected_no and selected_no in lookup:
             return lookup[selected_no]
-        return row.get("application_date")
+        return own_date
 
     out["application_date"] = out.apply(_resolve, axis=1)
     return out
@@ -929,7 +932,7 @@ def _split_family_members_by_status(status_text: object) -> tuple[str, str, str]
 
         country = _extract_country_from_number(member_no)
         status_lower = status.lower()
-        if country in FIVE_OFFICE_COUNTRIES and status_lower == "alive":
+        if country in FIVE_OFFICE_COUNTRIES and status_lower in {"alive", "indeterminate"}:
             alive_members.append(member_no)
         elif country in FIVE_OFFICE_COUNTRIES and status_lower == "dead":
             dead_members.append(member_no)

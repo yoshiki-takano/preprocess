@@ -1133,7 +1133,7 @@ def test_application_date_is_resolved_from_selected_patent_number() -> None:
 
     assert len(selected) == 1
     assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
-    assert pd.to_datetime(selected.iloc[0]["application_date"]) == pd.Timestamp("2021-09-20")
+    assert pd.to_datetime(selected.iloc[0]["application_date"]) == pd.Timestamp("2020-02-21")
 
 
 def test_additional_output_columns_are_generated_from_source_columns() -> None:
@@ -1180,9 +1180,9 @@ def test_additional_output_columns_are_generated_from_source_columns() -> None:
     assert row["出願人/権利者"] == "ABC corporation"
     assert row["優先権情報"] == "GB201214619A(2012-08-16) | WO2013EP67161A(2013-08-16)"
     assert row["DWPI ファミリーメンバー"] == "GB2504977A | WO2014027092A2 | EP2885820A2 | US20150187971A1"
-    assert row["五庁有効ファミリ"] == "US20150187971A1"
+    assert row["五庁有効ファミリ"] == "US20150187971A1 | EP2885820B1"
     assert row["五庁失効ファミリ"] == "CN104854709B"
-    assert row["その他ファミリ"] == "GB2504977A | EP2885820B1 | RU2672642C2"
+    assert row["その他ファミリ"] == "GB2504977A | RU2672642C2"
 
 
 def test_priority_info_pairs_up_to_shorter_length() -> None:

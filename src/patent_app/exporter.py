@@ -6,6 +6,20 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+OUTPUT_COLUMN_RENAME: dict[str, str] = {
+    "country_code": "国名コード",
+    "accession_number": "ファミリ番号",
+    "selected_patent_number": "公報番号",
+    "publication_number": "公開番号",
+    "registration_number": "登録番号",
+    "publication_date": "公報発行日",
+    "application_number": "出願番号",
+    "application_date": "出願日",
+    "legal_status": "無効/有効",
+    "source_file": "ソースファイル",
+    "language_of_publication": "公報言語",
+}
+
 
 def build_xlsx_bytes(
     selected_df: pd.DataFrame,
@@ -18,10 +32,10 @@ def build_xlsx_bytes(
         wb = Workbook()
 
     results_ws = _get_or_create_sheet(wb, "Results")
-    _write_dataframe(results_ws, selected_df)
+    _write_dataframe(results_ws, selected_df.rename(columns=OUTPUT_COLUMN_RENAME))
 
     no_acc_ws = _get_or_create_sheet(wb, "NoAcc")
-    _write_dataframe(no_acc_ws, no_acc_df)
+    _write_dataframe(no_acc_ws, no_acc_df.rename(columns=OUTPUT_COLUMN_RENAME))
 
     if "Sheet" in wb.sheetnames and len(wb.sheetnames) > 2:
         del wb["Sheet"]
