@@ -8,7 +8,7 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).parent / "src"))
 
-from patent_app.exporter import build_xlsx_bytes
+from patent_app.exporter import OUTPUT_COLUMN_RENAME, build_xlsx_bytes
 from patent_app.io_ops import (
     canonicalize_dataframe,
     load_dataframe,
@@ -284,7 +284,7 @@ if uploaded:
 
         selected_family_count, _ = _compute_family_no_acc_counts(selected_df)
         _render_paginated_dataframe(
-            selected_df,
+            selected_df.rename(columns=OUTPUT_COLUMN_RENAME),
             "抽出結果",
             "selected_preview",
             family_count=selected_family_count,
