@@ -14,6 +14,44 @@ ProgressCallback = Callable[[int, str], None]
 
 FIVE_OFFICE_COUNTRIES = {"JP", "US", "EP", "CN", "KR"}
 
+
+@lru_cache(maxsize=1)
+def _load_kind_code_lookup_pipeline() -> dict[tuple[str, str], str]:
+    """kind_code.csv から (COUNTRY_CODE, DWPI_KIND) → PUAB のルックアップを返す。"""
+    csv_path = Path(__file__).resolve().parents[2] / "data" / "kind_code.csv"
+    if not csv_path.exists():
+        return {}
+    df = pd.read_csv(csv_path, dtype=str).fillna("")
+    if not {"COUNTRY_CODE", "DWPI_KIND", "PUAB"}.issubset(set(df.columns)):
+        return {}
+    lookup: dict[tuple[str, str], str] = {}
+    for _, row in df.iterrows():
+        country = str(row["COUNTRY_CODE"]).strip().upper()
+        kind = str(row["DWPI_KIND"]).strip().upper()
+        puab = str(row["PUAB"]).strip().upper()
+        if country and kind and puab:
+            lookup[(country, kind)] = puab
+    return lookup
+
+
+def _resolve_puab_for_row(row: pd.Series) -> str:
+    """行の公報番号/登録番号から PUAB 値を返す。"""
+    lookup = _load_kind_code_lookup_pipeline()
+    if not lookup:
+        return ""
+    pub_no = str(row.get("publication_number", "") or "").strip()
+    reg_no = str(row.get("registration_number", "") or "").strip()
+    doc_no = pub_no or reg_no
+    if not doc_no:
+        return ""
+    value = doc_no.strip().upper().replace(" ", "")
+    cc_match = re.match(r"^([A-Za-z]{2})", value)
+    country = cc_match.group(1).upper() if cc_match else ""
+    kind_match = re.search(r"([A-Z]{1,2}\d{0,2})$", value)
+    kind_code = kind_match.group(1) if kind_match else ""
+    return lookup.get((country, kind_code), "")
+
+
 SOURCE_HELPER_COLUMNS = [
     "title_english",
     "title_dwpi",
@@ -95,6 +133,7 @@ def run_selection_pipeline(
             "_group_key",
             "family_id",
             "registration_date",
+            "_is_utility",
             "_has_primary",
             "_rank_date",
             "_pairing_application_key",
@@ -529,11 +568,14 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     ranked["_rank_date"] = ranked["publication_date"]
     ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
     ranked = ranked.join(_build_revision_sort_columns(ranked["registration_number"], "reg"))
+    # 特許(0)を実案(1)より常に優先する
+    ranked["_is_utility"] = ranked.apply(lambda row: 1 if _resolve_puab_for_row(row) in {"UA", "UB"} else 0, axis=1)
 
     ascending_date = config.date_policy == "earliest"
 
     ranked = ranked.sort_values(
         by=[
+            "_is_utility",
             "_has_primary",
             "_rank_date",
             "application_number",
@@ -544,7 +586,7 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
             "_reg_revision",
             "_reg_raw",
         ],
-        ascending=[False, ascending_date, True, True, True, True, True, True, True],
+        ascending=[True, False, ascending_date, True, True, True, True, True, True, True],
         na_position="last",
     )
 

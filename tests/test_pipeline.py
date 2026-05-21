@@ -1216,3 +1216,49 @@ def test_priority_info_pairs_up_to_shorter_length() -> None:
 
     assert len(selected) == 1
     assert selected.iloc[0]["優先権情報"] == "P1(2020-01-01) | P2(2020-02-01)"
+
+
+def test_patent_is_preferred_over_utility_model_in_same_family() -> None:
+    """同じファミリに特許と実案が混在する場合、特許(PB)を優先して選択する。"""
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_MIXED",
+                "application_date": pd.Timestamp("2023-01-01"),
+                "publication_number": "",
+                "registration_number": "DE202300001U1",  # 実案 (DE U1 → UB)
+                "publication_date": pd.Timestamp("2023-06-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "U1",
+                "accession_number": "ACC_UTIL",
+                "family_id": "F_MIXED",
+                "country_code": "DE",
+            },
+            {
+                "application_number": "APP_MIXED",
+                "application_date": pd.Timestamp("2023-01-01"),
+                "publication_number": "",
+                "registration_number": "DE10202300001B4",  # 特許 (DE B4 → PB)
+                "publication_date": pd.Timestamp("2024-01-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "B4",
+                "accession_number": "ACC_UTIL",
+                "family_id": "F_MIXED",
+                "country_code": "DE",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["DE"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    # 特許 (B4) が選ばれ、実案 (U1) は選ばれないこと
+    assert "B4" in str(selected.iloc[0]["selected_patent_number"])
