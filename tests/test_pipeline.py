@@ -553,7 +553,55 @@ def test_republish_wo_with_own_appno_pairs_pub_with_jp_registration() -> None:
     assert selected.iloc[0]["registration_number"] == "JP06945450B2"
     assert selected.iloc[0]["publication_number"] == "WO1989000044A1"
     assert selected.iloc[0]["selected_patent_number"] == "JP06945450B2"
-    assert selected.iloc[0]["application_number"] == "APP_FROM_JPX"
+    assert selected.iloc[0]["application_number"] == "WO2016JP78476A"
+
+
+def test_excluded_rows_can_be_pairing_counterparts_but_are_not_selected() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_PAIR",
+                "application_date": pd.Timestamp("2020-01-01"),
+                "publication_number": "WO2020001234A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-08-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "Dead",
+                "kind": "A1",
+                "accession_number": "ACC_EXCLUDED_PAIR",
+                "family_id": "F_EXCLUDED_PAIR",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "APP_PAIR",
+                "application_date": pd.Timestamp("2020-01-01"),
+                "publication_number": "",
+                "registration_number": "JP7000000B2",
+                "publication_date": pd.Timestamp("2023-05-01"),
+                "registration_date": pd.Timestamp("2023-05-01"),
+                "legal_status": "Alive",
+                "kind": "B2",
+                "accession_number": "ACC_EXCLUDED_PAIR",
+                "family_id": "F_EXCLUDED_PAIR",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "WO"],
+        exclude_invalid=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "WO2020001234A1"
+    assert selected.iloc[0]["publication_number"] == "WO2020001234A1"
+    assert selected.iloc[0]["registration_number"] == "JP7000000B2"
+    assert selected.iloc[0]["legal_status"] == "Alive"
 
 
 def test_leading_republish_wo_can_be_treated_as_jp_and_get_application_number_from_jp_a1() -> None:

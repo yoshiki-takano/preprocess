@@ -75,16 +75,7 @@ def run_selection_pipeline(
     config: SelectionConfig,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    _notify_progress(progress_callback, 32, "除外条件を適用しています...")
-    working = _apply_exclusions(
-        canonical_df,
-        exclude_invalid=config.exclude_invalid,
-        exclude_utility=config.exclude_utility,
-        start_date_field=config.start_date_field,
-        start_date=config.start_date,
-        end_date_field=config.end_date_field,
-        end_date=config.end_date,
-    )
+    working = canonical_df.copy()
     _notify_progress(progress_callback, 38, "再公表(元WO)ルールを適用しています...")
     working, repub_applied_mask = _apply_wo_republication_as_jp(
         working,
@@ -98,19 +89,37 @@ def run_selection_pipeline(
     )
     _notify_progress(progress_callback, 50, "JP X種の除外を適用しています...")
     working = _exclude_jp_x_s5(working)
+    _notify_progress(progress_callback, 56, "選択対象の除外条件を判定しています...")
+    selectable = _apply_exclusions(
+        working,
+        exclude_invalid=config.exclude_invalid,
+        exclude_utility=config.exclude_utility,
+        start_date_field=config.start_date_field,
+        start_date=config.start_date,
+        end_date_field=config.end_date_field,
+        end_date=config.end_date,
+    )
+    selectable_index = set(selectable.index)
+
     _notify_progress(progress_callback, 56, "関連データを準備しています...")
-    no_acc_df = _extract_no_acc(working)
-    legal_status_lookup = _build_legal_status_lookup(working)
+    no_acc_df = _extract_no_acc(selectable)
+    legal_status_lookup = _build_legal_status_lookup(selectable)
     publication_number_date_lookup = _build_publication_number_date_lookup(working)
     paired = _pair_publication_registration_by_application(working)
     patent_application_date_lookup = _build_patent_application_date_lookup(working)
     patent_date_lookup = _build_patent_publication_date_lookup(working)
+
+    if not paired.empty and selectable_index:
+        paired = paired.loc[paired.index.isin(selectable_index)].copy()
+
     _notify_progress(progress_callback, 60, "国優先順位で候補を絞り込んでいます...")
     narrowed = _apply_one_family_one_country(paired, config.country_priority)
     if not narrowed.empty:
         pub_numbers = narrowed["publication_number"].fillna("").astype(str).str.strip()
+        reg_numbers = narrowed["registration_number"].fillna("").astype(str).str.strip()
         narrowed = narrowed.copy()
         narrowed["_publication_rank_date"] = pub_numbers.map(publication_number_date_lookup)
+        narrowed["_registration_rank_date"] = reg_numbers.map(patent_date_lookup)
 
     if config.mode == "family":
         grouped = _assign_group_key(narrowed, "family_id")
@@ -144,6 +153,7 @@ def run_selection_pipeline(
             "_pairing_application_key",
             "_pairing_key_override",
             "_publication_rank_date",
+            "_registration_rank_date",
             "_pub_base",
             "_pub_revision",
             "_pub_raw",
@@ -591,6 +601,10 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     if config.priority_basis == "publication" and "_publication_rank_date" in ranked.columns:
         ranked["_rank_date"] = ranked["_publication_rank_date"].where(
             ranked["_publication_rank_date"].notna(), ranked["publication_date"]
+        )
+    elif config.priority_basis == "registration" and "_registration_rank_date" in ranked.columns:
+        ranked["_rank_date"] = ranked["_registration_rank_date"].where(
+            ranked["_registration_rank_date"].notna(), ranked["publication_date"]
         )
     else:
         ranked["_rank_date"] = ranked["publication_date"]
