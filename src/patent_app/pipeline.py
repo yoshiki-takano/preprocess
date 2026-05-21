@@ -598,6 +598,19 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     ranked = group.copy()
     has_primary = ranked[primary_number_col].fillna("").astype(str).str.strip() != ""
     ranked["_has_primary"] = has_primary.astype(int)
+    # selected_patent_number と同じ国コードの行を優先する。
+    # 例: selected_patent_number が JP... の場合は JP 行を優先。
+    if config.priority_basis == "registration":
+        selected_no = ranked["registration_number"].fillna("").astype(str).str.strip()
+        fallback_no = ranked["publication_number"].fillna("").astype(str).str.strip()
+    else:
+        selected_no = ranked["publication_number"].fillna("").astype(str).str.strip()
+        fallback_no = ranked["registration_number"].fillna("").astype(str).str.strip()
+    selected_no = selected_no.mask(selected_no == "", fallback_no)
+    selected_country = selected_no.map(_extract_country_from_number)
+    row_country = ranked["country_code"].fillna("").astype(str).str.upper().str.strip()
+    ranked["_country_matches_selected"] = (row_country == selected_country).astype(int)
+
     if config.priority_basis == "publication" and "_publication_rank_date" in ranked.columns:
         ranked["_rank_date"] = ranked["_publication_rank_date"].where(
             ranked["_publication_rank_date"].notna(), ranked["publication_date"]
@@ -622,6 +635,7 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
         by=[
             "_is_utility",
             "_has_primary",
+            "_country_matches_selected",
             "_rank_date",
             "application_number",
             "_pub_base",
@@ -631,7 +645,7 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
             "_reg_revision",
             "_reg_raw",
         ],
-        ascending=[True, False, ascending_date, ascending_date, ascending_date, True, ascending_date, ascending_date, True, ascending_date],
+        ascending=[True, False, False, ascending_date, ascending_date, ascending_date, True, ascending_date, ascending_date, True, ascending_date],
         na_position="last",
     )
 

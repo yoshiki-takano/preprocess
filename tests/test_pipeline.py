@@ -553,7 +553,7 @@ def test_republish_wo_with_own_appno_pairs_pub_with_jp_registration() -> None:
     assert selected.iloc[0]["registration_number"] == "JP06945450B2"
     assert selected.iloc[0]["publication_number"] == "WO1989000044A1"
     assert selected.iloc[0]["selected_patent_number"] == "JP06945450B2"
-    assert selected.iloc[0]["application_number"] == "WO2016JP78476A"
+    assert selected.iloc[0]["application_number"] == "APP_FROM_JPX"
 
 
 def test_excluded_rows_can_be_pairing_counterparts_but_are_not_selected() -> None:
