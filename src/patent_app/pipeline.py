@@ -593,7 +593,7 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
             "_reg_revision",
             "_reg_raw",
         ],
-        ascending=[True, False, ascending_date, True, True, True, True, True, True, True],
+        ascending=[True, False, ascending_date, ascending_date, ascending_date, True, ascending_date, ascending_date, True, ascending_date],
         na_position="last",
     )
 
