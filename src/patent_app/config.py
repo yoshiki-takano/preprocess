@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 CANONICAL_COLUMNS = {
-    "application_number": ["application_number", "出願番号", "出願No", "APPLN_NR"],
+    "application_number": ["application_number", "Application Number", "出願番号", "出願No", "APPLN_NR"],
     "application_date": ["application_date", "出願日", "出願日付", "application date"],
     "publication_number": [
         "publication_number",
@@ -10,10 +10,11 @@ CANONICAL_COLUMNS = {
         "公開番号",
     ],
     "registration_number": ["registration_number", "登録番号", "特許番号"],
-    "publication_date": ["publication_date", "公開日", "公開日付", "公報発行日"],
+    "publication_date": ["publication_date", "Publication Date", "公開日", "公開日付", "公報発行日"],
     "registration_date": ["registration_date", "登録日", "登録日付"],
     "legal_status": [
         "legal_status",
+        "Dead/Alive",
         "法的状況",
         "法的状態",
         "status",
@@ -23,9 +24,11 @@ CANONICAL_COLUMNS = {
     "kind": ["kind", "種別", "権利種別"],
     "accession_number": [
         "accession_number",
+        "DWPI Accession Number",
         "DWPI accession number",
         "dwpi accession number",
         "DWPIアクセッション番号",
+        "DWPI アクセッション番号",
     ],
     "family_id": ["family_id", "ファミリID", "ファミリーID"],
     "country_code": ["country_code", "国コード", "country"],
@@ -39,8 +42,10 @@ CANONICAL_COLUMNS = {
     "dwpi_family_members": ["dwpi_family_members", "DWPI ファミリーメンバー", "DWPI Family Members"],
     "dwpi_family_members_status": [
         "dwpi_family_members_status",
-        "DWPI ファミリーメンバー 有効/無効",
+        "DWPI Family Members Dead/Alive",
         "DWPI Family Members Alive/Dead",
+        "DWPI ファミリーメンバー 有効/無効",
+        "DWPI ファミリーメンバー Dead/Alive",
     ],
     "language_of_publication": ["language_of_publication", "公報言語", "Language of Publication"],
     "source_file": ["source_file", "ソースファイル"],

@@ -607,21 +607,30 @@ def _resolve_selected_patent_number(row: pd.Series, priority_basis: str) -> str:
 
 def _reorder_selected_columns(df: pd.DataFrame) -> pd.DataFrame:
     preferred = [
+        "country_code",
         "accession_number",
         "selected_patent_number",
-        "application_number",
-        "application_date",
-        "publication_date",
+        "publication_number",
+        "registration_number",
         "タイトル（英語）",
         "タイトル - DWPI",
         "出願人/権利者",
         "譲受人 - DWPI",
+        "publication_date",
+        "application_number",
+        "application_date",
         "優先権情報",
+        "legal_status",
         "DWPI ファミリーメンバー",
         "五庁有効ファミリ",
         "五庁失効ファミリ",
         "その他ファミリ",
+        "source_file",
+        "language_of_publication",
     ]
+    # kind 列は出力不要
+    drop_cols = [c for c in ["kind"] if c in df.columns]
+    df = df.drop(columns=drop_cols, errors="ignore")
     leading = [c for c in preferred if c in df.columns]
     trailing = [c for c in df.columns if c not in leading]
     return df[leading + trailing]
@@ -640,11 +649,11 @@ def _build_legal_status_lookup(df: pd.DataFrame) -> dict[str, str]:
             if not patent_no:
                 continue
 
-            # If duplicates exist, keep "無効" as stronger signal.
+            # 失効/Dead 状態は上書きしない（より強いシグナルとして保持）
             prev = lookup.get(patent_no)
-            if prev == "無効":
+            if prev is not None and _contains_exclude_status(prev.lower()):
                 continue
-            if status == "無効" or prev is None:
+            if _contains_exclude_status(status.lower()) or prev is None:
                 lookup[patent_no] = status
 
     return lookup

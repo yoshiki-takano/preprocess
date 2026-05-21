@@ -224,6 +224,7 @@ if uploaded:
 
             progress.progress(25, text="入力データを正規化しています...")
             canonical_df = canonicalize_dataframe(raw_df, mapping)
+            canonical_df["source_file"] = uploaded.name
 
             progress.progress(45, text="抽出条件を準備しています...")
             cfg = SelectionConfig(

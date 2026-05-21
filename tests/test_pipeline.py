@@ -238,9 +238,9 @@ def test_selected_column_order_starts_with_requested_fields() -> None:
     selected, _ = run_selection_pipeline(_df(), cfg)
 
     assert list(selected.columns[:3]) == [
+        "country_code",
         "accession_number",
         "selected_patent_number",
-        "application_number",
     ]
     assert "_has_primary" not in selected.columns
     assert "_rank_date" not in selected.columns

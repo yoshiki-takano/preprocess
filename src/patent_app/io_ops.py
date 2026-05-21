@@ -49,8 +49,7 @@ def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
                 continue
         raise ValueError("CSV encoding could not be decoded.")
     if lower_name.endswith(".xlsx") or lower_name.endswith(".xlsm"):
-        # Adjust header row for input files
-        raw_df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=1)
+        raw_df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=None)
         return _promote_detected_header(raw_df)
     raise ValueError("Unsupported file type. Use .xlsx, .xlsm, or .csv")
 
@@ -119,40 +118,9 @@ def canonicalize_dataframe(
     )
 
     out = _classify_pub_reg_by_kind_code(out)
-    out["legal_status"] = out["legal_status"].map(_to_binary_legal_status)
+    # legal_status は元の表記（Dead/Alive/Indeterminate 等）を保持するためバイナリ変換しない
     out["kind"] = out.apply(_derive_kind_code, axis=1)
     out = _normalize_kr_application_numbers(out)
-
-    # Ensure '無効/有効' retains original values
-    out["legal_status"] = df[mapping.get("legal_status")]
-
-    # Add source file name and publication language
-    out["source_file"] = mapping.get("source_file")
-    out["language_of_publication"] = df[mapping.get("language_of_publication")]
-
-    # Reorder columns to match the specified output order
-    output_columns = [
-        "country_code",
-        "accession_number",
-        "selected_patent_number",
-        "publication_number",
-        "registration_number",
-        "title_english",
-        "title_dwpi",
-        "assignee_applicant",
-        "assignee_dwpi",
-        "publication_date",
-        "application_number",
-        "application_date",
-        "priority_number",
-        "priority_date",
-        "legal_status",
-        "dwpi_family_members",
-        "dwpi_family_members_status",
-        "source_file",
-        "language_of_publication",
-    ]
-    out = out[output_columns]
 
     return out
 

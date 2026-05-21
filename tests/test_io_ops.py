@@ -75,8 +75,9 @@ def test_legal_status_is_binary_valid_invalid() -> None:
     mapping = resolve_column_mapping(list(source.columns))
     out = canonicalize_dataframe(source, mapping)
 
-    assert out.iloc[0]["legal_status"] == "有効"
-    assert out.iloc[1]["legal_status"] == "無効"
+    # 元の表記をそのまま保持する
+    assert out.iloc[0]["legal_status"] == "active"
+    assert out.iloc[1]["legal_status"] == "失効"
 
 
 def test_dead_status_is_normalized_to_invalid() -> None:
@@ -90,7 +91,8 @@ def test_dead_status_is_normalized_to_invalid() -> None:
     mapping = resolve_column_mapping(list(source.columns))
     out = canonicalize_dataframe(source, mapping)
 
-    assert out.iloc[0]["legal_status"] == "無効"
+    # 元の表記「Dead」をそのまま保持する
+    assert out.iloc[0]["legal_status"] == "Dead"
 
 
 def test_mukou_yukou_column_is_mapped_to_legal_status() -> None:
@@ -104,7 +106,8 @@ def test_mukou_yukou_column_is_mapped_to_legal_status() -> None:
     mapping = resolve_column_mapping(list(source.columns))
     out = canonicalize_dataframe(source, mapping)
 
-    assert out.iloc[0]["legal_status"] == "無効"
+    # 元の表記「Dead」をそのまま保持する
+    assert out.iloc[0]["legal_status"] == "Dead"
 
 
 def test_kind_is_kind_code_suffix() -> None:
