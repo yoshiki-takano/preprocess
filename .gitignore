@@ -34,3 +34,4 @@ data/*.xlsm
 data/*.xls
 data/*.csv
 data/*.dno
+data/*.txt
