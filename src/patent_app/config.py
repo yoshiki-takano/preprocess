@@ -42,6 +42,8 @@ CANONICAL_COLUMNS = {
         "DWPI ファミリーメンバー 有効/無効",
         "DWPI Family Members Alive/Dead",
     ],
+    "language_of_publication": ["language_of_publication", "公報言語", "Language of Publication"],
+    "source_file": ["source_file", "ソースファイル"],
 }
 
 EXCLUDE_STATUS_TOKENS = {"失効", "無効", "expired", "invalid", "dead"}

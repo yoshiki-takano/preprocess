@@ -122,6 +122,37 @@ def canonicalize_dataframe(
     out["kind"] = out.apply(_derive_kind_code, axis=1)
     out = _normalize_kr_application_numbers(out)
 
+    # Ensure '無効/有効' retains original values
+    out["legal_status"] = df[mapping.get("legal_status")]
+
+    # Add source file name and publication language
+    out["source_file"] = mapping.get("source_file")
+    out["language_of_publication"] = df[mapping.get("language_of_publication")]
+
+    # Reorder columns to match the specified output order
+    output_columns = [
+        "country_code",
+        "accession_number",
+        "selected_patent_number",
+        "publication_number",
+        "registration_number",
+        "title_english",
+        "title_dwpi",
+        "assignee_applicant",
+        "assignee_dwpi",
+        "publication_date",
+        "application_number",
+        "application_date",
+        "priority_number",
+        "priority_date",
+        "legal_status",
+        "dwpi_family_members",
+        "dwpi_family_members_status",
+        "source_file",
+        "language_of_publication",
+    ]
+    out = out[output_columns]
+
     return out
 
 
