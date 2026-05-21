@@ -219,14 +219,14 @@ if uploaded:
     if run_clicked:
         progress = st.progress(0, text="抽出処理を開始しています...")
         try:
-            progress.progress(10, text="列マッピングを解決しています...")
+            progress.progress(8, text="列マッピングを解決しています...")
             mapping = resolve_column_mapping(source_columns)
 
-            progress.progress(25, text="入力データを正規化しています...")
+            progress.progress(16, text="入力データを正規化しています...")
             canonical_df = canonicalize_dataframe(raw_df, mapping)
             canonical_df["source_file"] = uploaded.name
 
-            progress.progress(45, text="抽出条件を準備しています...")
+            progress.progress(24, text="抽出条件を準備しています...")
             cfg = SelectionConfig(
                 mode=mode,
                 priority_basis=priority_basis,
@@ -242,7 +242,7 @@ if uploaded:
                 end_date=end_date_value if enable_end_date else None,
             )
 
-            progress.progress(65, text="抽出ロジックを実行しています...")
+            progress.progress(30, text="抽出ロジックを実行しています...")
             selected_df, no_acc_df = run_selection_pipeline(
                 canonical_df,
                 cfg,
@@ -256,7 +256,7 @@ if uploaded:
                     kind="stable",
                 ).reset_index(drop=True)
 
-            progress.progress(85, text="ダウンロード用ファイルを作成しています...")
+            progress.progress(95, text="ダウンロード用ファイルを作成しています...")
             output_bytes = build_xlsx_bytes(
                 selected_df,
                 no_acc_df,

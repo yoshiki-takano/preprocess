@@ -75,7 +75,7 @@ def run_selection_pipeline(
     config: SelectionConfig,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    _notify_progress(progress_callback, 66, "除外条件を適用しています...")
+    _notify_progress(progress_callback, 32, "除外条件を適用しています...")
     working = _apply_exclusions(
         canonical_df,
         exclude_invalid=config.exclude_invalid,
@@ -85,34 +85,39 @@ def run_selection_pipeline(
         end_date_field=config.end_date_field,
         end_date=config.end_date,
     )
-    _notify_progress(progress_callback, 68, "再公表(元WO)ルールを適用しています...")
+    _notify_progress(progress_callback, 38, "再公表(元WO)ルールを適用しています...")
     working, repub_applied_mask = _apply_wo_republication_as_jp(
         working,
         treat_wo_republication_as_jp=config.treat_wo_republication_as_jp,
     )
-    _notify_progress(progress_callback, 70, "先行再公表(WO)ルールを適用しています...")
+    _notify_progress(progress_callback, 44, "先行再公表(WO)ルールを適用しています...")
     working = _apply_wo_prior_republication_as_jp(
         working,
         treat_wo_prior_republication_as_jp=config.treat_wo_prior_republication_as_jp,
         skip_mask=repub_applied_mask,
     )
-    _notify_progress(progress_callback, 72, "JP X種の除外を適用しています...")
+    _notify_progress(progress_callback, 50, "JP X種の除外を適用しています...")
     working = _exclude_jp_x_s5(working)
-    _notify_progress(progress_callback, 73, "関連データを準備しています...")
+    _notify_progress(progress_callback, 56, "関連データを準備しています...")
     no_acc_df = _extract_no_acc(working)
     legal_status_lookup = _build_legal_status_lookup(working)
+    publication_number_date_lookup = _build_publication_number_date_lookup(working)
     paired = _pair_publication_registration_by_application(working)
     patent_application_date_lookup = _build_patent_application_date_lookup(working)
     patent_date_lookup = _build_patent_publication_date_lookup(working)
-    _notify_progress(progress_callback, 74, "国優先順位で候補を絞り込んでいます...")
+    _notify_progress(progress_callback, 60, "国優先順位で候補を絞り込んでいます...")
     narrowed = _apply_one_family_one_country(paired, config.country_priority)
+    if not narrowed.empty:
+        pub_numbers = narrowed["publication_number"].fillna("").astype(str).str.strip()
+        narrowed = narrowed.copy()
+        narrowed["_publication_rank_date"] = pub_numbers.map(publication_number_date_lookup)
 
     if config.mode == "family":
         grouped = _assign_group_key(narrowed, "family_id")
     else:
         grouped = _assign_group_key(narrowed, "application_number")
 
-    _notify_progress(progress_callback, 75, "代表公報を選定しています...")
+    _notify_progress(progress_callback, 64, "代表公報を選定しています...")
     selected_rows: list[pd.Series] = []
     grouped_items = list(grouped.groupby("_group_key", dropna=False))
     total_groups = len(grouped_items)
@@ -120,14 +125,14 @@ def run_selection_pipeline(
     for idx, (_, group) in enumerate(grouped_items, start=1):
         selected_rows.append(_select_representative(group, config))
         if total_groups > 0 and (idx == 1 or idx == total_groups or idx % step == 0):
-            value = 75 + int((idx / total_groups) * 7)
+            value = 64 + int((idx / total_groups) * 24)
             _notify_progress(progress_callback, value, f"代表公報を選定しています... ({idx}/{total_groups})")
 
     if not selected_rows:
-        _notify_progress(progress_callback, 83, "抽出結果を整形しています...")
+        _notify_progress(progress_callback, 90, "抽出結果を整形しています...")
         return pd.DataFrame(columns=canonical_df.columns), no_acc_df
 
-    _notify_progress(progress_callback, 83, "抽出結果を整形しています...")
+    _notify_progress(progress_callback, 90, "抽出結果を整形しています...")
     selected = pd.DataFrame(selected_rows).drop(
         columns=[
             "_group_key",
@@ -138,6 +143,7 @@ def run_selection_pipeline(
             "_rank_date",
             "_pairing_application_key",
             "_pairing_key_override",
+            "_publication_rank_date",
             "_pub_base",
             "_pub_revision",
             "_pub_raw",
@@ -582,7 +588,12 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     ranked = group.copy()
     has_primary = ranked[primary_number_col].fillna("").astype(str).str.strip() != ""
     ranked["_has_primary"] = has_primary.astype(int)
-    ranked["_rank_date"] = ranked["publication_date"]
+    if config.priority_basis == "publication" and "_publication_rank_date" in ranked.columns:
+        ranked["_rank_date"] = ranked["_publication_rank_date"].where(
+            ranked["_publication_rank_date"].notna(), ranked["publication_date"]
+        )
+    else:
+        ranked["_rank_date"] = ranked["publication_date"]
     ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
     ranked = ranked.join(_build_revision_sort_columns(ranked["registration_number"], "reg"))
     # Kind codeリビジョン番号の重複を除去: 同一ベース番号内で最小リビジョンの行のみ残す
@@ -731,6 +742,31 @@ def _build_legal_status_lookup(df: pd.DataFrame) -> dict[str, str]:
                 continue
             if _contains_exclude_status(status.lower()) or prev is None:
                 lookup[patent_no] = status
+
+    return lookup
+
+
+def _build_publication_number_date_lookup(df: pd.DataFrame) -> dict[str, object]:
+    lookup: dict[str, object] = {}
+    if df.empty:
+        return lookup
+
+    publication_numbers = df["publication_number"].fillna("").astype(str).str.strip()
+    publication_dates = pd.to_datetime(df["publication_date"], errors="coerce")
+
+    for idx in df.index:
+        publication_no = publication_numbers.at[idx]
+        if not publication_no:
+            continue
+
+        publication_date = publication_dates.at[idx]
+        prev_date = lookup.get(publication_no)
+        if prev_date is None or pd.isna(prev_date):
+            lookup[publication_no] = publication_date
+            continue
+
+        if publication_date is not None and not pd.isna(publication_date) and publication_date > prev_date:
+            lookup[publication_no] = publication_date
 
     return lookup
 

@@ -211,7 +211,8 @@ def _classify_pub_reg_by_kind_code(df: pd.DataFrame) -> pd.DataFrame:
             country = _extract_country_from_publication(pub_num)
             kind_code = _extract_kind_code(pub_num)
             puab = lookup.get((country, kind_code), "")
-            if puab in {"PB", "UB"}:
+            # US reissue patents (USRE...) are registration-side documents.
+            if (country == "US" and pub_num.upper().startswith("USRE")) or puab in {"PB", "UB"}:
                 out.at[idx, "registration_number"] = pub_num
                 out.at[idx, "publication_number"] = ""
 
