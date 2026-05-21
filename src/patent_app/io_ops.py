@@ -49,7 +49,8 @@ def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
                 continue
         raise ValueError("CSV encoding could not be decoded.")
     if lower_name.endswith(".xlsx") or lower_name.endswith(".xlsm"):
-        raw_df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=None)
+        # Adjust header row for input files
+        raw_df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=1)
         return _promote_detected_header(raw_df)
     raise ValueError("Unsupported file type. Use .xlsx, .xlsm, or .csv")
 
