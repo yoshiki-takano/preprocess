@@ -137,6 +137,7 @@ def run_selection_pipeline(
             "_has_primary",
             "_rank_date",
             "_pairing_application_key",
+            "_pairing_key_override",
             "_pub_base",
             "_pub_revision",
             "_pub_raw",
@@ -218,6 +219,9 @@ def _pair_publication_registration_by_application(df: pd.DataFrame) -> pd.DataFr
 
     out = df.copy()
     match_keys = _build_pairing_match_keys(out)
+    if "_pairing_key_override" in out.columns:
+        override = out["_pairing_key_override"].fillna("").astype(str).str.strip()
+        match_keys = match_keys.mask(override.ne(""), override)
     out["_pairing_application_key"] = match_keys
 
     for match_key, idx in match_keys.groupby(match_keys).groups.items():
@@ -372,6 +376,12 @@ def _apply_wo_republication_as_jp(
             fill_idx = target_idx[wo_empty.values]
             if len(fill_idx) > 0:
                 out.loc[fill_idx, "application_number"] = merged.loc[fill_idx, "application_number_jpx"]
+
+            # ペアリング補完: JP X の出願番号を _pairing_key_override として設定し、
+            # WO の公報番号と JP の登録特許をペアリング可能にする
+            if "_pairing_key_override" not in out.columns:
+                out["_pairing_key_override"] = ""
+            out.loc[target_idx, "_pairing_key_override"] = merged.loc[target_idx, "application_number_jpx"].values
 
     out.loc[repub_mask, "_country_priority_code"] = "JP"
     return out, repub_mask
@@ -575,6 +585,9 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     ranked["_rank_date"] = ranked["publication_date"]
     ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
     ranked = ranked.join(_build_revision_sort_columns(ranked["registration_number"], "reg"))
+    # Kind codeリビジョン番号の重複を除去: 同一ベース番号内で最小リビジョンの行のみ残す
+    ranked = _filter_min_revision(ranked, "_pub_base", "_pub_revision")
+    ranked = _filter_min_revision(ranked, "_reg_base", "_reg_revision")
     # 特許(0)を実案(1)より常に優先する
     ranked["_is_utility"] = ranked.apply(lambda row: 1 if _resolve_puab_for_row(row) in {"UA", "UB"} else 0, axis=1)
 
@@ -625,6 +638,20 @@ def _parse_revision_sort_parts(value: str) -> tuple[str, int]:
         return text, 999
 
     return f"{head}{kind_symbol}", int(revision)
+
+
+def _filter_min_revision(df: pd.DataFrame, base_col: str, rev_col: str) -> pd.DataFrame:
+    """同一ベース番号内でリビジョン番号が最小の行のみを残す（ベース番号が空の行は対象外）。"""
+    has_base = df[base_col].ne("")
+    if not has_base.any():
+        return df
+    has_base_idx = df.index[has_base]
+    min_rev = df.loc[has_base_idx, base_col].map(
+        df.loc[has_base_idx].groupby(base_col)[rev_col].min()
+    )
+    keep_mask = pd.Series(True, index=df.index)
+    keep_mask.loc[has_base_idx] = df.loc[has_base_idx, rev_col] == min_rev
+    return df[keep_mask]
 
 
 def _contains_exclude_status(value: str) -> bool:

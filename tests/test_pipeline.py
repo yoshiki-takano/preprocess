@@ -494,6 +494,68 @@ def test_republish_wo_can_pair_with_jp_registration_on_registration_priority() -
     assert selected.iloc[0]["selected_patent_number"] == "JP7654321B2"
 
 
+def test_republish_wo_with_own_appno_pairs_pub_with_jp_registration() -> None:
+    """WO が自前の出願番号を持つ場合でも JP X 経由でペアリングが補完される（PCT 国内移行ケース）"""
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "WO2016JP78476A",
+                "application_date": pd.Timestamp("2016-09-27"),
+                "publication_number": "WO1989000044A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2017-04-06"),
+                "registration_date": pd.NaT,
+                "legal_status": "Dead",
+                "kind": "A1",
+                "accession_number": "ACC_PCT_PAIR",
+                "family_id": "F_PCT_PAIR",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "APP_FROM_JPX",
+                "application_date": pd.Timestamp("2016-09-27"),
+                "publication_number": "JP2017543435X",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2018-07-19"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "X",
+                "accession_number": "ACC_PCT_PAIR",
+                "family_id": "F_PCT_PAIR",
+                "country_code": "JP",
+            },
+            {
+                "application_number": "APP_FROM_JPX",
+                "application_date": pd.Timestamp("2016-09-27"),
+                "publication_number": "",
+                "registration_number": "JP06945450B2",
+                "publication_date": pd.Timestamp("2021-10-06"),
+                "registration_date": pd.Timestamp("2021-10-06"),
+                "legal_status": "Alive",
+                "kind": "B2",
+                "accession_number": "ACC_PCT_PAIR",
+                "family_id": "F_PCT_PAIR",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP", "US", "WO"],
+        treat_wo_republication_as_jp=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["registration_number"] == "JP06945450B2"
+    assert selected.iloc[0]["publication_number"] == "WO1989000044A1"
+    assert selected.iloc[0]["selected_patent_number"] == "JP06945450B2"
+    assert selected.iloc[0]["application_number"] == "APP_FROM_JPX"
+
+
 def test_leading_republish_wo_can_be_treated_as_jp_and_get_application_number_from_jp_a1() -> None:
     df = pd.DataFrame(
         [
