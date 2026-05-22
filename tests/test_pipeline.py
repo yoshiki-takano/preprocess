@@ -181,8 +181,8 @@ def test_date_policy_earliest_with_publication_priority() -> None:
     )
     selected, _ = run_selection_pipeline(df, cfg)
 
-    assert selected.iloc[0]["application_number"] == "A5"
-    assert selected.iloc[0]["selected_patent_number"] == "US20230001"
+    assert selected.iloc[0]["application_number"] == "A2"
+    assert selected.iloc[0]["selected_patent_number"] == "US20240002"
 
 
 def test_pairs_publication_and_registration_by_application_number() -> None:

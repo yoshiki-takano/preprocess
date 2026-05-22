@@ -104,10 +104,10 @@ def run_selection_pipeline(
     _notify_progress(progress_callback, 56, "関連データを準備しています...")
     no_acc_df = _extract_no_acc(selectable)
     legal_status_lookup = _build_legal_status_lookup(selectable)
-    publication_number_date_lookup = _build_publication_number_date_lookup(working)
     paired = _pair_publication_registration_by_application(working)
     patent_application_date_lookup = _build_patent_application_date_lookup(working)
     patent_date_lookup = _build_patent_publication_date_lookup(working)
+    patent_application_number_lookup = _build_patent_application_number_lookup(working)
 
     if not paired.empty and selectable_index:
         paired = paired.loc[paired.index.isin(selectable_index)].copy()
@@ -115,11 +115,19 @@ def run_selection_pipeline(
     _notify_progress(progress_callback, 60, "国優先順位で候補を絞り込んでいます...")
     narrowed = _apply_one_family_one_country(paired, config.country_priority)
     if not narrowed.empty:
-        pub_numbers = narrowed["publication_number"].fillna("").astype(str).str.strip()
-        reg_numbers = narrowed["registration_number"].fillna("").astype(str).str.strip()
         narrowed = narrowed.copy()
-        narrowed["_publication_rank_date"] = pub_numbers.map(publication_number_date_lookup)
-        narrowed["_registration_rank_date"] = reg_numbers.map(patent_date_lookup)
+        if config.priority_basis == "registration":
+            selected_no = narrowed["registration_number"].fillna("").astype(str).str.strip()
+            fallback_no = narrowed["publication_number"].fillna("").astype(str).str.strip()
+        else:
+            selected_no = narrowed["publication_number"].fillna("").astype(str).str.strip()
+            fallback_no = narrowed["registration_number"].fillna("").astype(str).str.strip()
+        selected_no = selected_no.mask(selected_no == "", fallback_no)
+
+        rank_app_no = selected_no.map(patent_application_number_lookup)
+        narrowed["_rank_application_date"] = selected_no.map(patent_application_date_lookup)
+        narrowed["_rank_publication_date"] = selected_no.map(patent_date_lookup)
+        narrowed["_rank_application_number_numeric"] = rank_app_no.map(_extract_application_number_numeric)
 
     if config.mode == "family":
         grouped = _assign_group_key(narrowed, "family_id")
@@ -152,8 +160,10 @@ def run_selection_pipeline(
             "_rank_date",
             "_pairing_application_key",
             "_pairing_key_override",
-            "_publication_rank_date",
-            "_registration_rank_date",
+            "_rank_application_date",
+            "_rank_publication_date",
+            "_rank_application_number_numeric",
+            "_country_matches_selected",
             "_pub_base",
             "_pub_revision",
             "_pub_raw",
@@ -611,19 +621,26 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     row_country = ranked["country_code"].fillna("").astype(str).str.upper().str.strip()
     ranked["_country_matches_selected"] = (row_country == selected_country).astype(int)
 
-    if config.priority_basis == "publication" and "_publication_rank_date" in ranked.columns:
-        ranked["_rank_date"] = ranked["_publication_rank_date"].where(
-            ranked["_publication_rank_date"].notna(), ranked["publication_date"]
-        )
-    elif config.priority_basis == "registration" and "_registration_rank_date" in ranked.columns:
-        ranked["_rank_date"] = ranked["_registration_rank_date"].where(
-            ranked["_registration_rank_date"].notna(), ranked["publication_date"]
+    if "_rank_application_date" in ranked.columns:
+        ranked["_rank_application_date"] = pd.to_datetime(ranked["_rank_application_date"], errors="coerce")
+    else:
+        ranked["_rank_application_date"] = pd.NaT
+
+    if "_rank_publication_date" in ranked.columns:
+        ranked["_rank_publication_date"] = pd.to_datetime(ranked["_rank_publication_date"], errors="coerce")
+    else:
+        ranked["_rank_publication_date"] = pd.to_datetime(ranked["publication_date"], errors="coerce")
+
+    if "_rank_application_number_numeric" in ranked.columns:
+        ranked["_rank_application_number_numeric"] = pd.to_numeric(
+            ranked["_rank_application_number_numeric"], errors="coerce"
         )
     else:
-        ranked["_rank_date"] = ranked["publication_date"]
+        ranked["_rank_application_number_numeric"] = pd.NA
+
     ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
     ranked = ranked.join(_build_revision_sort_columns(ranked["registration_number"], "reg"))
-    # Kind codeリビジョン番号の重複を除去: 同一ベース番号内で最小リビジョンの行のみ残す
+    # Kind codeリビジョンは比較キーに使わず、同一ベース番号内で最小のみ残す
     ranked = _filter_min_revision(ranked, "_pub_base", "_pub_revision")
     ranked = _filter_min_revision(ranked, "_reg_base", "_reg_revision")
     # 特許(0)を実案(1)より常に優先する
@@ -636,16 +653,11 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
             "_is_utility",
             "_has_primary",
             "_country_matches_selected",
-            "_rank_date",
-            "application_number",
-            "_pub_base",
-            "_pub_revision",
-            "_pub_raw",
-            "_reg_base",
-            "_reg_revision",
-            "_reg_raw",
+            "_rank_application_date",
+            "_rank_publication_date",
+            "_rank_application_number_numeric",
         ],
-        ascending=[True, False, False, ascending_date, ascending_date, ascending_date, True, ascending_date, ascending_date, True, ascending_date],
+        ascending=[True, False, False, ascending_date, ascending_date, ascending_date],
         na_position="last",
     )
 
@@ -797,6 +809,31 @@ def _build_publication_number_date_lookup(df: pd.DataFrame) -> dict[str, object]
             lookup[publication_no] = publication_date
 
     return lookup
+
+
+def _build_patent_application_number_lookup(df: pd.DataFrame) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+
+    for _, row in df.iterrows():
+        application_number = str(row.get("application_number", "") or "").strip()
+        if not application_number:
+            continue
+
+        for col in ["publication_number", "registration_number"]:
+            patent_no = str(row.get(col, "") or "").strip()
+            if not patent_no:
+                continue
+            if patent_no not in lookup:
+                lookup[patent_no] = application_number
+
+    return lookup
+
+
+def _extract_application_number_numeric(value: object) -> int | None:
+    digits = "".join(re.findall(r"\d", str(value or "")))
+    if not digits:
+        return None
+    return int(digits)
 
 
 def _build_patent_publication_date_lookup(df: pd.DataFrame) -> dict[str, object]:
