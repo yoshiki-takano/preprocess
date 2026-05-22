@@ -334,22 +334,19 @@ def _build_final_selected_dataframe(
     patent_date_lookup: dict[str, object],
 ) -> pd.DataFrame:
     selected = pd.DataFrame(selected_rows).drop(columns=SELECTED_HELPER_DROP_COLUMNS, errors="ignore")
-    selected["selected_patent_number"] = selected.apply(
-        lambda row: _resolve_selected_patent_number(
-            row,
-            config.priority_basis,
-            exclude_invalid=selected_number_options.exclude_invalid,
-            status_lookup=selected_number_options.status_lookup,
-            date_allowed_patent_numbers=selected_number_options.date_allowed_patent_numbers,
-        ),
-        axis=1,
+    selected["selected_patent_number"] = _resolve_selected_patent_number_series(
+        selected,
+        priority_basis=config.priority_basis,
+        exclude_invalid=selected_number_options.exclude_invalid,
+        status_lookup=selected_number_options.status_lookup,
+        date_allowed_patent_numbers=selected_number_options.date_allowed_patent_numbers,
     )
     selected = _resolve_application_date_from_selected_patent(selected, patent_application_date_lookup)
     selected = _resolve_publication_date_from_selected_patent(selected, patent_date_lookup)
-    selected["legal_status"] = selected.apply(
-        lambda row: _resolve_selected_legal_status(row, legal_status_lookup),
-        axis=1,
-    )
+    selected_no = selected["selected_patent_number"].fillna("").astype(str).str.strip()
+    resolved_status = selected_no.map(legal_status_lookup)
+    own_status = selected["legal_status"].fillna("").astype(str).str.strip()
+    selected["legal_status"] = resolved_status.where(resolved_status.notna(), own_status)
     selected = _append_additional_output_columns(selected, canonical_df)
     selected = selected.drop(columns=SOURCE_HELPER_COLUMNS, errors="ignore")
     selected = _reorder_selected_columns(selected)
@@ -1067,6 +1064,44 @@ def _resolve_selected_patent_number(
     return primary_no or fallback_no
 
 
+def _resolve_selected_patent_number_series(
+    df: pd.DataFrame,
+    *,
+    priority_basis: str,
+    exclude_invalid: bool = False,
+    status_lookup: dict[str, str] | None = None,
+    date_allowed_patent_numbers: set[str] | None = None,
+) -> pd.Series:
+    reg_no = df["registration_number"].fillna("").astype(str).str.strip()
+    pub_no = df["publication_number"].fillna("").astype(str).str.strip()
+
+    if priority_basis == "registration":
+        primary_no = reg_no
+        fallback_no = pub_no
+    else:
+        primary_no = pub_no
+        fallback_no = reg_no
+
+    selected = primary_no.mask(primary_no == "", fallback_no)
+
+    primary_allowed = primary_no.ne("")
+    fallback_allowed = fallback_no.ne("")
+
+    if exclude_invalid:
+        status_map = status_lookup or {}
+        primary_status = primary_no.map(status_map).fillna("").astype(str).str.strip().str.lower()
+        fallback_status = fallback_no.map(status_map).fillna("").astype(str).str.strip().str.lower()
+        primary_allowed = primary_allowed & ~primary_status.map(_contains_exclude_status)
+        fallback_allowed = fallback_allowed & ~fallback_status.map(_contains_exclude_status)
+
+    if date_allowed_patent_numbers is not None:
+        primary_allowed = primary_allowed & primary_no.isin(date_allowed_patent_numbers)
+        fallback_allowed = fallback_allowed & fallback_no.isin(date_allowed_patent_numbers)
+
+    swap_to_fallback = primary_no.ne("") & ~primary_allowed & fallback_allowed
+    return selected.mask(swap_to_fallback, fallback_no)
+
+
 def _reorder_selected_columns(df: pd.DataFrame) -> pd.DataFrame:
     preferred = [
         "country_code",
@@ -1101,13 +1136,16 @@ def _reorder_selected_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _build_legal_status_lookup(df: pd.DataFrame) -> dict[str, str]:
     lookup: dict[str, str] = {}
 
-    for _, row in df.iterrows():
-        status = str(row.get("legal_status", "") or "").strip()
+    status_values = _normalized_text_series(df, "legal_status")
+    pub_values = _normalized_text_series(df, "publication_number")
+    reg_values = _normalized_text_series(df, "registration_number")
+
+    for status, pub_no, reg_no in zip(status_values, pub_values, reg_values):
         if not status:
             continue
+        is_excluded_status = _contains_exclude_status(status.lower())
 
-        for col in PATENT_NUMBER_COLUMNS:
-            patent_no = str(row.get(col, "") or "").strip()
+        for patent_no in (pub_no, reg_no):
             if not patent_no:
                 continue
 
@@ -1115,7 +1153,7 @@ def _build_legal_status_lookup(df: pd.DataFrame) -> dict[str, str]:
             prev = lookup.get(patent_no)
             if prev is not None and _contains_exclude_status(prev.lower()):
                 continue
-            if _contains_exclude_status(status.lower()) or prev is None:
+            if is_excluded_status or prev is None:
                 lookup[patent_no] = status
 
     return lookup
@@ -1149,13 +1187,15 @@ def _build_publication_number_date_lookup(df: pd.DataFrame) -> dict[str, object]
 def _build_patent_application_number_lookup(df: pd.DataFrame) -> dict[str, str]:
     lookup: dict[str, str] = {}
 
-    for _, row in df.iterrows():
-        application_number = str(row.get("application_number", "") or "").strip()
+    app_values = _normalized_text_series(df, "application_number")
+    pub_values = _normalized_text_series(df, "publication_number")
+    reg_values = _normalized_text_series(df, "registration_number")
+
+    for application_number, pub_no, reg_no in zip(app_values, pub_values, reg_values):
         if not application_number:
             continue
 
-        for col in PATENT_NUMBER_COLUMNS:
-            patent_no = str(row.get(col, "") or "").strip()
+        for patent_no in (pub_no, reg_no):
             if not patent_no:
                 continue
             if patent_no not in lookup:
@@ -1174,10 +1214,12 @@ def _extract_application_number_numeric(value: object) -> int | None:
 def _build_patent_publication_date_lookup(df: pd.DataFrame) -> dict[str, object]:
     lookup: dict[str, object] = {}
 
-    for _, row in df.iterrows():
-        publication_date = row.get("publication_date")
-        for col in PATENT_NUMBER_COLUMNS:
-            patent_no = str(row.get(col, "") or "").strip()
+    publication_dates = _datetime_series(df, "publication_date")
+    pub_values = _normalized_text_series(df, "publication_number")
+    reg_values = _normalized_text_series(df, "registration_number")
+
+    for publication_date, pub_no, reg_no in zip(publication_dates, pub_values, reg_values):
+        for patent_no in (pub_no, reg_no):
             if not patent_no:
                 continue
 
@@ -1195,10 +1237,12 @@ def _build_patent_publication_date_lookup(df: pd.DataFrame) -> dict[str, object]
 def _build_patent_application_date_lookup(df: pd.DataFrame) -> dict[str, object]:
     lookup: dict[str, object] = {}
 
-    for _, row in df.iterrows():
-        application_date = row.get("application_date")
-        for col in PATENT_NUMBER_COLUMNS:
-            patent_no = str(row.get(col, "") or "").strip()
+    application_dates = _datetime_series(df, "application_date")
+    pub_values = _normalized_text_series(df, "publication_number")
+    reg_values = _normalized_text_series(df, "registration_number")
+
+    for application_date, pub_no, reg_no in zip(application_dates, pub_values, reg_values):
+        for patent_no in (pub_no, reg_no):
             if not patent_no:
                 continue
 
@@ -1215,31 +1259,32 @@ def _build_patent_application_date_lookup(df: pd.DataFrame) -> dict[str, object]
 
 def _resolve_application_date_from_selected_patent(selected: pd.DataFrame, lookup: dict[str, object]) -> pd.DataFrame:
     out = selected.copy()
-
-    def _resolve(row: pd.Series) -> object:
-        own_date = row.get("application_date")
-        if own_date is not None and not pd.isna(own_date):
-            return own_date
-        selected_no = str(row.get("selected_patent_number", "") or "").strip()
-        if selected_no and selected_no in lookup:
-            return lookup[selected_no]
-        return own_date
-
-    out["application_date"] = out.apply(_resolve, axis=1)
+    own_date = _datetime_series(out, "application_date")
+    selected_no = _normalized_text_series(out, "selected_patent_number")
+    mapped = pd.to_datetime(selected_no.map(lookup), errors="coerce")
+    out["application_date"] = own_date.where(own_date.notna(), mapped)
     return out
 
 
 def _resolve_publication_date_from_selected_patent(selected: pd.DataFrame, lookup: dict[str, object]) -> pd.DataFrame:
     out = selected.copy()
-
-    def _resolve(row: pd.Series) -> object:
-        selected_no = str(row.get("selected_patent_number", "") or "").strip()
-        if selected_no and selected_no in lookup:
-            return lookup[selected_no]
-        return row.get("publication_date")
-
-    out["publication_date"] = out.apply(_resolve, axis=1)
+    own_date = _datetime_series(out, "publication_date")
+    selected_no = _normalized_text_series(out, "selected_patent_number")
+    mapped = pd.to_datetime(selected_no.map(lookup), errors="coerce")
+    out["publication_date"] = mapped.where(mapped.notna(), own_date)
     return out
+
+
+def _normalized_text_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series("", index=df.index, dtype="object")
+    return df[column].fillna("").astype(str).str.strip()
+
+
+def _datetime_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(pd.NaT, index=df.index)
+    return pd.to_datetime(df[column], errors="coerce")
 
 
 def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.DataFrame) -> pd.DataFrame:
@@ -1315,8 +1360,7 @@ def _build_source_row_lookup(canonical_df: pd.DataFrame) -> tuple[dict[str, dict
     patent_lookup: dict[str, dict[str, object]] = {}
     accession_app_lookup: dict[tuple[str, str], dict[str, object]] = {}
 
-    for _, row in canonical_df.iterrows():
-        row_dict = row.to_dict()
+    for row_dict in canonical_df.to_dict("records"):
         accession = _as_text(row_dict.get("accession_number", ""))
         app_no = _as_text(row_dict.get("application_number", ""))
         if accession or app_no:
