@@ -226,7 +226,8 @@ def _prepare_selection_context(
     selectable: pd.DataFrame,
     selectable_index: set[int],
 ) -> _SelectionContext:
-    no_acc_df = _extract_no_acc(selectable)
+    # no_acc 行も通常候補へ編入するため、NoAcc 出力は空集合を返す。
+    no_acc_df = selectable.iloc[0:0].copy()
     patent_status_lookup = _build_legal_status_lookup(working)
     legal_status_lookup = _build_legal_status_lookup(selectable)
     paired = _pair_publication_registration_by_application(working)
@@ -827,7 +828,7 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
     country_col = "_country_priority_code" if "_country_priority_code" in df.columns else "country_code"
 
     with_key = df.copy()
-    family_key = with_key["family_id"].fillna("").replace("", pd.NA)
+    family_key = _build_effective_family_key(with_key)
     with_key["_family_key"] = family_key
     missing_mask = with_key["_family_key"].isna()
     with_key.loc[missing_mask, "_family_key"] = with_key.index.astype(str)[missing_mask]
@@ -860,14 +861,25 @@ def _assign_group_key(df: pd.DataFrame, column: str) -> pd.DataFrame:
         key = out["_pairing_application_key"].fillna("").astype(str).str.strip()
         raw_app = out["application_number"].fillna("").astype(str).str.strip()
         key = key.mask(key == "", raw_app)
+    elif column == "family_id":
+        key = _build_effective_family_key(out).fillna("").astype(str).str.strip()
     else:
         key = out[column].fillna("").astype(str).str.strip()
 
-    fallback = out["family_id"].fillna("").astype(str).str.strip()
+    fallback = _build_effective_family_key(out).fillna("").astype(str).str.strip()
     key = key.mask(key == "", fallback)
     key = key.mask(key == "", out.index.astype(str))
     out["_group_key"] = key
     return out
+
+
+def _build_effective_family_key(df: pd.DataFrame) -> pd.Series:
+    if "family_id" not in df.columns:
+        return pd.Series(pd.NA, index=df.index)
+
+    family = df["family_id"].fillna("").astype(str).str.strip()
+    missing = family.eq("") | family.str.lower().isin(NO_ACC_TOKENS)
+    return family.mask(missing, pd.NA)
 
 
 def _resolve_priority_number_series(df: pd.DataFrame, priority_basis: str) -> pd.Series:

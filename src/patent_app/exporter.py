@@ -23,7 +23,7 @@ OUTPUT_COLUMN_RENAME: dict[str, str] = {
 
 def build_xlsx_bytes(
     selected_df: pd.DataFrame,
-    no_acc_df: pd.DataFrame,
+    no_acc_df: pd.DataFrame | None = None,
     template_bytes: bytes | None = None,
 ) -> bytes:
     if template_bytes:
@@ -34,10 +34,10 @@ def build_xlsx_bytes(
     results_ws = _get_or_create_sheet(wb, "Results")
     _write_dataframe(results_ws, selected_df.rename(columns=OUTPUT_COLUMN_RENAME))
 
-    no_acc_ws = _get_or_create_sheet(wb, "NoAcc")
-    _write_dataframe(no_acc_ws, no_acc_df.rename(columns=OUTPUT_COLUMN_RENAME))
+    if "NoAcc" in wb.sheetnames:
+        del wb["NoAcc"]
 
-    if "Sheet" in wb.sheetnames and len(wb.sheetnames) > 2:
+    if "Sheet" in wb.sheetnames and len(wb.sheetnames) > 1:
         del wb["Sheet"]
 
     output = io.BytesIO()

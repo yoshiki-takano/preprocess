@@ -272,7 +272,51 @@ def test_no_acc_does_not_include_registration_date() -> None:
     )
 
     _, no_acc = run_selection_pipeline(input_df, cfg)
-    assert "registration_date" not in no_acc.columns
+    assert no_acc.empty
+
+
+def test_no_acc_token_rows_are_not_collapsed_into_single_family() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_A",
+                "application_date": pd.Timestamp("2024-01-10"),
+                "publication_number": "JP20240001A",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A",
+                "accession_number": "-",
+                "family_id": "-",
+                "country_code": "JP",
+            },
+            {
+                "application_number": "APP_B",
+                "application_date": pd.Timestamp("2024-01-11"),
+                "publication_number": "US20240002A",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-02"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A",
+                "accession_number": "-",
+                "family_id": "-",
+                "country_code": "US",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 2
+    assert set(selected["application_number"].tolist()) == {"APP_A", "APP_B"}
 
 
 def test_legal_status_is_resolved_from_selected_patent_number() -> None:

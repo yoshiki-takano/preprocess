@@ -169,8 +169,6 @@ if "date_policy" not in st.session_state:
     _sync_date_policy_from_priority_basis()
 if "selected_df" not in st.session_state:
     st.session_state["selected_df"] = None
-if "no_acc_df" not in st.session_state:
-    st.session_state["no_acc_df"] = None
 if "output_bytes" not in st.session_state:
     st.session_state["output_bytes"] = None
 if "result_error" not in st.session_state:
@@ -199,7 +197,6 @@ if uploaded:
     if st.session_state["uploaded_name"] != uploaded.name:
         st.session_state["uploaded_name"] = uploaded.name
         st.session_state["selected_df"] = None
-        st.session_state["no_acc_df"] = None
         st.session_state["output_bytes"] = None
         st.session_state["result_error"] = None
 
@@ -243,7 +240,7 @@ if uploaded:
             )
 
             progress.progress(30, text="抽出ロジックを実行しています...")
-            selected_df, no_acc_df = run_selection_pipeline(
+            selected_df, _ = run_selection_pipeline(
                 canonical_df,
                 cfg,
                 progress_callback=lambda value, message: progress.progress(value, text=message),
@@ -259,11 +256,9 @@ if uploaded:
             progress.progress(95, text="ダウンロード用ファイルを作成しています...")
             output_bytes = build_xlsx_bytes(
                 selected_df,
-                no_acc_df,
-                template.getvalue() if template else None,
+                template_bytes=template.getvalue() if template else None,
             )
             st.session_state["selected_df"] = selected_df
-            st.session_state["no_acc_df"] = no_acc_df
             st.session_state["output_bytes"] = output_bytes
             st.session_state["result_error"] = None
             progress.progress(100, text="抽出が完了しました。")
@@ -274,13 +269,10 @@ if uploaded:
     if st.session_state["result_error"]:
         st.error(f"処理に失敗しました: {st.session_state['result_error']}")
 
-    if st.session_state["selected_df"] is not None and st.session_state["no_acc_df"] is not None:
+    if st.session_state["selected_df"] is not None:
         selected_df = st.session_state["selected_df"]
-        no_acc_df = st.session_state["no_acc_df"]
         st.success("抽出が完了しました。")
-        m1, m2 = st.columns(2)
-        m1.metric("抽出件数", f"{len(selected_df):,}")
-        m2.metric("no_acc件数", f"{len(no_acc_df):,}")
+        st.metric("抽出件数", f"{len(selected_df):,}")
 
         selected_family_count, _ = _compute_family_no_acc_counts(selected_df)
         _render_paginated_dataframe(
@@ -288,7 +280,6 @@ if uploaded:
             "抽出結果",
             "selected_preview",
             family_count=selected_family_count,
-            no_acc_count=len(no_acc_df),
         )
 
         output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
