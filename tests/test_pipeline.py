@@ -1248,6 +1248,54 @@ def test_exclude_invalid_avoids_dead_selected_patent_number() -> None:
     assert selected.iloc[0]["registration_number"] == "JP07524160B2"
 
 
+def test_date_filter_avoids_out_of_range_selected_patent_number() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_DATE_RANGE",
+                "application_date": pd.Timestamp("2020-02-21"),
+                "publication_number": "WO2020189179A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-09-24"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "A1",
+                "accession_number": "ACC_DATE_RANGE",
+                "family_id": "F_DATE_RANGE",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "APP_DATE_RANGE",
+                "application_date": pd.Timestamp("2021-09-20"),
+                "publication_number": "",
+                "registration_number": "JP07524160B2",
+                "publication_date": pd.Timestamp("2024-07-29"),
+                "registration_date": pd.Timestamp("2024-07-29"),
+                "legal_status": "Alive",
+                "kind": "B2",
+                "accession_number": "ACC_DATE_RANGE",
+                "family_id": "F_DATE_RANGE",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "WO"],
+        start_date_field="publication_date",
+        start_date=date(2024, 1, 1),
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "WO2020189179A1"
+    assert selected.iloc[0]["registration_number"] == "JP07524160B2"
+    assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
+
+
 def test_application_date_is_resolved_from_selected_patent_number() -> None:
     df = pd.DataFrame(
         [

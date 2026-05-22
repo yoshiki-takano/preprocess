@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
@@ -13,6 +14,25 @@ from .models import SelectionConfig
 ProgressCallback = Callable[[int, str], None]
 
 FIVE_OFFICE_COUNTRIES = {"JP", "US", "EP", "CN", "KR"}
+
+PROGRESS_REPUB_WO = 38
+PROGRESS_PRIOR_REPUB_WO = 44
+PROGRESS_EXCLUDE_JP_X = 50
+PROGRESS_APPLY_EXCLUSIONS = 56
+PROGRESS_PREPARE_CONTEXT = 56
+PROGRESS_COUNTRY_NARROW = 60
+PROGRESS_SELECT_REPRESENTATIVE_START = 64
+PROGRESS_SELECT_REPRESENTATIVE_END = 88
+PROGRESS_FORMAT_OUTPUT = 90
+
+MSG_REPUB_WO = "再公表(元WO)ルールを適用しています..."
+MSG_PRIOR_REPUB_WO = "先行再公表(WO)ルールを適用しています..."
+MSG_EXCLUDE_JP_X = "JP X種の除外を適用しています..."
+MSG_APPLY_EXCLUSIONS = "選択対象の除外条件を判定しています..."
+MSG_PREPARE_CONTEXT = "関連データを準備しています..."
+MSG_COUNTRY_NARROW = "国優先順位で候補を絞り込んでいます..."
+MSG_SELECT_REPRESENTATIVE = "代表公報を選定しています..."
+MSG_FORMAT_OUTPUT = "抽出結果を整形しています..."
 
 
 @lru_cache(maxsize=1)
@@ -64,6 +84,48 @@ SOURCE_HELPER_COLUMNS = [
     "dwpi_family_members_status",
 ]
 
+PATENT_NUMBER_COLUMNS = ["publication_number", "registration_number"]
+
+SELECTED_HELPER_DROP_COLUMNS = [
+    "_group_key",
+    "family_id",
+    "registration_date",
+    "_is_utility",
+    "_has_primary",
+    "_rank_date",
+    "_pairing_application_key",
+    "_pairing_key_override",
+    "_pairing_date_override",
+    "_rank_application_date",
+    "_rank_publication_date",
+    "_rank_application_number_numeric",
+    "_country_matches_selected",
+    "_pub_base",
+    "_pub_revision",
+    "_pub_raw",
+    "_reg_base",
+    "_reg_revision",
+    "_reg_raw",
+]
+
+
+@dataclass(frozen=True)
+class _SelectionContext:
+    no_acc_df: pd.DataFrame
+    patent_status_lookup: dict[str, str]
+    legal_status_lookup: dict[str, str]
+    paired: pd.DataFrame
+    patent_application_date_lookup: dict[str, object]
+    patent_date_lookup: dict[str, object]
+    patent_application_number_lookup: dict[str, str]
+
+
+@dataclass(frozen=True)
+class _SelectedNumberResolutionOptions:
+    exclude_invalid: bool
+    status_lookup: dict[str, str] | None = None
+    date_allowed_patent_numbers: set[str] | None = None
+
 
 def _notify_progress(progress_callback: ProgressCallback | None, value: int, message: str) -> None:
     if progress_callback is not None:
@@ -75,127 +137,36 @@ def run_selection_pipeline(
     config: SelectionConfig,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    working = canonical_df.copy()
-    _notify_progress(progress_callback, 38, "再公表(元WO)ルールを適用しています...")
-    working, repub_applied_mask = _apply_wo_republication_as_jp(
-        working,
-        treat_wo_republication_as_jp=config.treat_wo_republication_as_jp,
-    )
-    _notify_progress(progress_callback, 44, "先行再公表(WO)ルールを適用しています...")
-    working = _apply_wo_prior_republication_as_jp(
-        working,
-        treat_wo_prior_republication_as_jp=config.treat_wo_prior_republication_as_jp,
-        skip_mask=repub_applied_mask,
-    )
-    _notify_progress(progress_callback, 50, "JP X種の除外を適用しています...")
-    working = _exclude_jp_x_s5(working)
-    _notify_progress(progress_callback, 56, "選択対象の除外条件を判定しています...")
-    selectable = _apply_exclusions(
-        working,
-        exclude_invalid=config.exclude_invalid,
-        exclude_utility=config.exclude_utility,
-        start_date_field=config.start_date_field,
-        start_date=config.start_date,
-        end_date_field=config.end_date_field,
-        end_date=config.end_date,
-    )
+    working, selectable = _prepare_working_and_selectable(canonical_df, config, progress_callback)
     selectable_index = set(selectable.index)
 
-    _notify_progress(progress_callback, 56, "関連データを準備しています...")
-    no_acc_df = _extract_no_acc(selectable)
-    patent_status_lookup = _build_legal_status_lookup(working)
-    legal_status_lookup = _build_legal_status_lookup(selectable)
-    paired = _pair_publication_registration_by_application(working)
-    patent_application_date_lookup = _build_patent_application_date_lookup(working)
-    patent_date_lookup = _build_patent_publication_date_lookup(working)
-    patent_application_number_lookup = _build_patent_application_number_lookup(working)
+    _notify_progress(progress_callback, PROGRESS_PREPARE_CONTEXT, MSG_PREPARE_CONTEXT)
+    context = _prepare_selection_context(working, selectable, selectable_index)
 
-    if not paired.empty and selectable_index:
-        paired = paired.loc[paired.index.isin(selectable_index)].copy()
+    _notify_progress(progress_callback, PROGRESS_COUNTRY_NARROW, MSG_COUNTRY_NARROW)
+    narrowed = _build_ranked_narrowed_candidates(context, config)
 
-    _notify_progress(progress_callback, 60, "国優先順位で候補を絞り込んでいます...")
-    narrowed = _apply_one_family_one_country(paired, config.country_priority)
-    if not narrowed.empty:
-        narrowed = narrowed.copy()
-        if config.priority_basis == "registration":
-            selected_no = narrowed["registration_number"].fillna("").astype(str).str.strip()
-            fallback_no = narrowed["publication_number"].fillna("").astype(str).str.strip()
-        else:
-            selected_no = narrowed["publication_number"].fillna("").astype(str).str.strip()
-            fallback_no = narrowed["registration_number"].fillna("").astype(str).str.strip()
-        selected_no = selected_no.mask(selected_no == "", fallback_no)
+    grouped = _group_for_mode(narrowed, config.mode)
 
-        rank_app_no = selected_no.map(patent_application_number_lookup)
-        narrowed["_rank_application_date"] = selected_no.map(patent_application_date_lookup)
-        narrowed["_rank_publication_date"] = selected_no.map(patent_date_lookup)
-        narrowed["_rank_application_number_numeric"] = rank_app_no.map(_extract_application_number_numeric)
-
-    if config.mode == "family":
-        grouped = _assign_group_key(narrowed, "family_id")
-    else:
-        grouped = _assign_group_key(narrowed, "application_number")
-
-    _notify_progress(progress_callback, 64, "代表公報を選定しています...")
-    selected_rows: list[pd.Series] = []
-    grouped_items = list(grouped.groupby("_group_key", dropna=False))
-    total_groups = len(grouped_items)
-    step = max(1, total_groups // 8) if total_groups > 0 else 1
-    for idx, (_, group) in enumerate(grouped_items, start=1):
-        selected_rows.append(_select_representative(group, config))
-        if total_groups > 0 and (idx == 1 or idx == total_groups or idx % step == 0):
-            value = 64 + int((idx / total_groups) * 24)
-            _notify_progress(progress_callback, value, f"代表公報を選定しています... ({idx}/{total_groups})")
+    _notify_progress(progress_callback, PROGRESS_SELECT_REPRESENTATIVE_START, MSG_SELECT_REPRESENTATIVE)
+    selected_rows = _collect_selected_rows(grouped, config, progress_callback)
 
     if not selected_rows:
-        _notify_progress(progress_callback, 90, "抽出結果を整形しています...")
-        return pd.DataFrame(columns=canonical_df.columns), no_acc_df
+        _notify_progress(progress_callback, PROGRESS_FORMAT_OUTPUT, MSG_FORMAT_OUTPUT)
+        return pd.DataFrame(columns=canonical_df.columns), context.no_acc_df
 
-    _notify_progress(progress_callback, 90, "抽出結果を整形しています...")
-    selected = pd.DataFrame(selected_rows).drop(
-        columns=[
-            "_group_key",
-            "family_id",
-            "registration_date",
-            "_is_utility",
-            "_has_primary",
-            "_rank_date",
-            "_pairing_application_key",
-            "_pairing_key_override",
-            "_pairing_date_override",
-            "_rank_application_date",
-            "_rank_publication_date",
-            "_rank_application_number_numeric",
-            "_country_matches_selected",
-            "_pub_base",
-            "_pub_revision",
-            "_pub_raw",
-            "_reg_base",
-            "_reg_revision",
-            "_reg_raw",
-        ],
-        errors="ignore",
+    _notify_progress(progress_callback, PROGRESS_FORMAT_OUTPUT, MSG_FORMAT_OUTPUT)
+    selected_number_options = _build_selected_number_resolution_options(config, context)
+    return _finalize_pipeline_outputs(
+        selected_rows=selected_rows,
+        no_acc_df=context.no_acc_df,
+        canonical_df=canonical_df,
+        config=config,
+        selected_number_options=selected_number_options,
+        legal_status_lookup=context.legal_status_lookup,
+        patent_application_date_lookup=context.patent_application_date_lookup,
+        patent_date_lookup=context.patent_date_lookup,
     )
-    selected["selected_patent_number"] = selected.apply(
-        lambda row: _resolve_selected_patent_number(
-            row,
-            config.priority_basis,
-            exclude_invalid=config.exclude_invalid,
-            status_lookup=patent_status_lookup,
-        ),
-        axis=1,
-    )
-    selected = _resolve_application_date_from_selected_patent(selected, patent_application_date_lookup)
-    selected = _resolve_publication_date_from_selected_patent(selected, patent_date_lookup)
-    selected["legal_status"] = selected.apply(
-        lambda row: _resolve_selected_legal_status(row, legal_status_lookup),
-        axis=1,
-    )
-    selected = _append_additional_output_columns(selected, canonical_df)
-    selected = selected.drop(columns=SOURCE_HELPER_COLUMNS, errors="ignore")
-    selected = _reorder_selected_columns(selected)
-    selected = selected.reset_index(drop=True)
-    no_acc = no_acc_df.drop(columns=["family_id", "registration_date"], errors="ignore").reset_index(drop=True)
-    return selected, no_acc
 
 
 def _apply_exclusions(
@@ -218,6 +189,260 @@ def _apply_exclusions(
     date_mask = _build_date_range_mask(df, start_date_field, start_date, end_date_field, end_date)
 
     return df[status_mask & kind_mask & date_mask].copy()
+
+
+def _prepare_working_and_selectable(
+    canonical_df: pd.DataFrame,
+    config: SelectionConfig,
+    progress_callback: ProgressCallback | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    working = canonical_df.copy()
+    _notify_progress(progress_callback, PROGRESS_REPUB_WO, MSG_REPUB_WO)
+    working, repub_applied_mask = _apply_wo_republication_as_jp(
+        working,
+        treat_wo_republication_as_jp=config.treat_wo_republication_as_jp,
+    )
+    _notify_progress(progress_callback, PROGRESS_PRIOR_REPUB_WO, MSG_PRIOR_REPUB_WO)
+    working = _apply_wo_prior_republication_as_jp(
+        working,
+        treat_wo_prior_republication_as_jp=config.treat_wo_prior_republication_as_jp,
+        skip_mask=repub_applied_mask,
+    )
+    _notify_progress(progress_callback, PROGRESS_EXCLUDE_JP_X, MSG_EXCLUDE_JP_X)
+    working = _exclude_jp_x_s5(working)
+    _notify_progress(progress_callback, PROGRESS_APPLY_EXCLUSIONS, MSG_APPLY_EXCLUSIONS)
+    selectable = _apply_exclusions(
+        working,
+        exclude_invalid=config.exclude_invalid,
+        exclude_utility=config.exclude_utility,
+        start_date_field=config.start_date_field,
+        start_date=config.start_date,
+        end_date_field=config.end_date_field,
+        end_date=config.end_date,
+    )
+    return working, selectable
+
+
+def _prepare_selection_context(
+    working: pd.DataFrame,
+    selectable: pd.DataFrame,
+    selectable_index: set[int],
+) -> _SelectionContext:
+    no_acc_df = _extract_no_acc(selectable)
+    patent_status_lookup = _build_legal_status_lookup(working)
+    legal_status_lookup = _build_legal_status_lookup(selectable)
+    paired = _pair_publication_registration_by_application(working)
+    patent_application_date_lookup = _build_patent_application_date_lookup(working)
+    patent_date_lookup = _build_patent_publication_date_lookup(working)
+    patent_application_number_lookup = _build_patent_application_number_lookup(working)
+
+    # ペアリング補完は working 全体で行い、最終選択対象のみをここで絞り込む。
+    if not paired.empty and selectable_index:
+        paired = paired.loc[paired.index.isin(selectable_index)].copy()
+
+    return _SelectionContext(
+        no_acc_df=no_acc_df,
+        patent_status_lookup=patent_status_lookup,
+        legal_status_lookup=legal_status_lookup,
+        paired=paired,
+        patent_application_date_lookup=patent_application_date_lookup,
+        patent_date_lookup=patent_date_lookup,
+        patent_application_number_lookup=patent_application_number_lookup,
+    )
+
+
+def _build_ranked_narrowed_candidates(context: _SelectionContext, config: SelectionConfig) -> pd.DataFrame:
+    narrowed = _apply_one_family_one_country(context.paired, config.country_priority)
+    if narrowed.empty:
+        return narrowed
+    return _attach_ranking_helper_columns(
+        narrowed,
+        priority_basis=config.priority_basis,
+        patent_application_number_lookup=context.patent_application_number_lookup,
+        patent_application_date_lookup=context.patent_application_date_lookup,
+        patent_publication_date_lookup=context.patent_date_lookup,
+    )
+
+
+def _collect_selected_rows(
+    grouped: pd.DataFrame,
+    config: SelectionConfig,
+    progress_callback: ProgressCallback | None,
+) -> list[pd.Series]:
+    selected_rows: list[pd.Series] = []
+    grouped_items = list(grouped.groupby("_group_key", dropna=False))
+    total_groups = len(grouped_items)
+
+    for idx, (_, group) in enumerate(grouped_items, start=1):
+        selected_rows.append(_select_representative(group, config))
+        progress = _build_representative_progress(idx, total_groups)
+        if progress is not None:
+            _notify_progress(progress_callback, progress, f"{MSG_SELECT_REPRESENTATIVE} ({idx}/{total_groups})")
+
+    return selected_rows
+
+
+def _build_representative_progress(idx: int, total_groups: int) -> int | None:
+    if total_groups <= 0:
+        return None
+
+    step = max(1, total_groups // 8)
+    should_notify = idx == 1 or idx == total_groups or idx % step == 0
+    if not should_notify:
+        return None
+
+    return PROGRESS_SELECT_REPRESENTATIVE_START + int(
+        (idx / total_groups) * (PROGRESS_SELECT_REPRESENTATIVE_END - PROGRESS_SELECT_REPRESENTATIVE_START)
+    )
+
+
+def _group_for_mode(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+    group_column = "family_id" if mode == "family" else "application_number"
+    return _assign_group_key(df, group_column)
+
+
+def _finalize_pipeline_outputs(
+    *,
+    selected_rows: list[pd.Series],
+    no_acc_df: pd.DataFrame,
+    canonical_df: pd.DataFrame,
+    config: SelectionConfig,
+    selected_number_options: _SelectedNumberResolutionOptions,
+    legal_status_lookup: dict[str, str],
+    patent_application_date_lookup: dict[str, object],
+    patent_date_lookup: dict[str, object],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    selected = _build_final_selected_dataframe(
+        selected_rows=selected_rows,
+        canonical_df=canonical_df,
+        config=config,
+        selected_number_options=selected_number_options,
+        legal_status_lookup=legal_status_lookup,
+        patent_application_date_lookup=patent_application_date_lookup,
+        patent_date_lookup=patent_date_lookup,
+    )
+    no_acc = _build_final_no_acc_dataframe(no_acc_df)
+    return selected, no_acc
+
+
+def _build_final_selected_dataframe(
+    *,
+    selected_rows: list[pd.Series],
+    canonical_df: pd.DataFrame,
+    config: SelectionConfig,
+    selected_number_options: _SelectedNumberResolutionOptions,
+    legal_status_lookup: dict[str, str],
+    patent_application_date_lookup: dict[str, object],
+    patent_date_lookup: dict[str, object],
+) -> pd.DataFrame:
+    selected = pd.DataFrame(selected_rows).drop(columns=SELECTED_HELPER_DROP_COLUMNS, errors="ignore")
+    selected["selected_patent_number"] = selected.apply(
+        lambda row: _resolve_selected_patent_number(
+            row,
+            config.priority_basis,
+            exclude_invalid=selected_number_options.exclude_invalid,
+            status_lookup=selected_number_options.status_lookup,
+            date_allowed_patent_numbers=selected_number_options.date_allowed_patent_numbers,
+        ),
+        axis=1,
+    )
+    selected = _resolve_application_date_from_selected_patent(selected, patent_application_date_lookup)
+    selected = _resolve_publication_date_from_selected_patent(selected, patent_date_lookup)
+    selected["legal_status"] = selected.apply(
+        lambda row: _resolve_selected_legal_status(row, legal_status_lookup),
+        axis=1,
+    )
+    selected = _append_additional_output_columns(selected, canonical_df)
+    selected = selected.drop(columns=SOURCE_HELPER_COLUMNS, errors="ignore")
+    selected = _reorder_selected_columns(selected)
+    return selected.reset_index(drop=True)
+
+
+def _build_final_no_acc_dataframe(no_acc_df: pd.DataFrame) -> pd.DataFrame:
+    return no_acc_df.drop(columns=["family_id", "registration_date"], errors="ignore").reset_index(drop=True)
+
+
+def _build_selected_number_resolution_options(
+    config: SelectionConfig,
+    context: _SelectionContext,
+) -> _SelectedNumberResolutionOptions:
+    date_allowed_patent_numbers = _build_date_allowed_patent_numbers(config, context)
+    return _SelectedNumberResolutionOptions(
+        exclude_invalid=config.exclude_invalid,
+        status_lookup=context.patent_status_lookup,
+        date_allowed_patent_numbers=date_allowed_patent_numbers,
+    )
+
+
+def _build_date_allowed_patent_numbers(config: SelectionConfig, context: _SelectionContext) -> set[str] | None:
+    if config.start_date is None and config.end_date is None:
+        return None
+
+    candidate_numbers = set(context.patent_application_date_lookup) | set(context.patent_date_lookup)
+    allowed: set[str] = set()
+    for patent_no in candidate_numbers:
+        if not patent_no:
+            continue
+        if _is_patent_number_within_date_range(
+            patent_no,
+            start_date_field=config.start_date_field,
+            start_date=config.start_date,
+            end_date_field=config.end_date_field,
+            end_date=config.end_date,
+            patent_application_date_lookup=context.patent_application_date_lookup,
+            patent_publication_date_lookup=context.patent_date_lookup,
+        ):
+            allowed.add(patent_no)
+    return allowed
+
+
+def _is_patent_number_within_date_range(
+    patent_no: str,
+    *,
+    start_date_field: str,
+    start_date,
+    end_date_field: str,
+    end_date,
+    patent_application_date_lookup: dict[str, object],
+    patent_publication_date_lookup: dict[str, object],
+) -> bool:
+    if start_date is not None:
+        start_value = _lookup_patent_date_by_field(
+            patent_no,
+            start_date_field,
+            patent_application_date_lookup,
+            patent_publication_date_lookup,
+        )
+        if start_value is None or start_value < start_date:
+            return False
+
+    if end_date is not None:
+        end_value = _lookup_patent_date_by_field(
+            patent_no,
+            end_date_field,
+            patent_application_date_lookup,
+            patent_publication_date_lookup,
+        )
+        if end_value is None or end_value > end_date:
+            return False
+
+    return True
+
+
+def _lookup_patent_date_by_field(
+    patent_no: str,
+    field: str,
+    patent_application_date_lookup: dict[str, object],
+    patent_publication_date_lookup: dict[str, object],
+):
+    raw = (
+        patent_application_date_lookup.get(patent_no)
+        if field == "application_date"
+        else patent_publication_date_lookup.get(patent_no)
+    )
+    if raw is None or pd.isna(raw):
+        return None
+    return pd.to_datetime(raw, errors="coerce").date()
 
 
 def _build_date_range_mask(
@@ -641,6 +866,32 @@ def _assign_group_key(df: pd.DataFrame, column: str) -> pd.DataFrame:
     return out
 
 
+def _resolve_priority_number_series(df: pd.DataFrame, priority_basis: str) -> pd.Series:
+    """優先基準に応じて比較用の特許番号系列を返す（空値は反対側番号で補完）。"""
+    reg_no = df["registration_number"].fillna("").astype(str).str.strip()
+    pub_no = df["publication_number"].fillna("").astype(str).str.strip()
+    primary = reg_no if priority_basis == "registration" else pub_no
+    fallback = pub_no if priority_basis == "registration" else reg_no
+    return primary.mask(primary == "", fallback)
+
+
+def _attach_ranking_helper_columns(
+    df: pd.DataFrame,
+    *,
+    priority_basis: str,
+    patent_application_number_lookup: dict[str, str],
+    patent_application_date_lookup: dict[str, object],
+    patent_publication_date_lookup: dict[str, object],
+) -> pd.DataFrame:
+    out = df.copy()
+    selected_no = _resolve_priority_number_series(out, priority_basis)
+    rank_app_no = selected_no.map(patent_application_number_lookup)
+    out["_rank_application_date"] = selected_no.map(patent_application_date_lookup)
+    out["_rank_publication_date"] = selected_no.map(patent_publication_date_lookup)
+    out["_rank_application_number_numeric"] = rank_app_no.map(_extract_application_number_numeric)
+    return out
+
+
 def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.Series:
     primary_number_col = "registration_number" if config.priority_basis == "registration" else "publication_number"
 
@@ -649,13 +900,7 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     ranked["_has_primary"] = has_primary.astype(int)
     # selected_patent_number と同じ国コードの行を優先する。
     # 例: selected_patent_number が JP... の場合は JP 行を優先。
-    if config.priority_basis == "registration":
-        selected_no = ranked["registration_number"].fillna("").astype(str).str.strip()
-        fallback_no = ranked["publication_number"].fillna("").astype(str).str.strip()
-    else:
-        selected_no = ranked["publication_number"].fillna("").astype(str).str.strip()
-        fallback_no = ranked["registration_number"].fillna("").astype(str).str.strip()
-    selected_no = selected_no.mask(selected_no == "", fallback_no)
+    selected_no = _resolve_priority_number_series(ranked, config.priority_basis)
     selected_country = selected_no.map(_extract_country_from_number)
     row_country = ranked["country_code"].fillna("").astype(str).str.upper().str.strip()
     ranked["_country_matches_selected"] = (row_country == selected_country).astype(int)
@@ -767,6 +1012,7 @@ def _resolve_selected_patent_number(
     priority_basis: str,
     exclude_invalid: bool = False,
     status_lookup: dict[str, str] | None = None,
+    date_allowed_patent_numbers: set[str] | None = None,
 ) -> str:
     reg_no = str(row.get("registration_number", "") or "").strip()
     pub_no = str(row.get("publication_number", "") or "").strip()
@@ -778,12 +1024,20 @@ def _resolve_selected_patent_number(
         primary_no = pub_no
         fallback_no = reg_no
 
-    if exclude_invalid and primary_no:
-        status_lookup = status_lookup or {}
-        primary_status = str(status_lookup.get(primary_no, "") or "").strip().lower()
-        fallback_status = str(status_lookup.get(fallback_no, "") or "").strip().lower()
-        if _contains_exclude_status(primary_status) and fallback_no and not _contains_exclude_status(fallback_status):
-            return fallback_no
+    def _is_candidate_allowed(patent_no: str) -> bool:
+        if not patent_no:
+            return False
+        if exclude_invalid:
+            status_map = status_lookup or {}
+            status = str(status_map.get(patent_no, "") or "").strip().lower()
+            if _contains_exclude_status(status):
+                return False
+        if date_allowed_patent_numbers is not None and patent_no not in date_allowed_patent_numbers:
+            return False
+        return True
+
+    if primary_no and not _is_candidate_allowed(primary_no) and _is_candidate_allowed(fallback_no):
+        return fallback_no
 
     return primary_no or fallback_no
 
@@ -827,7 +1081,7 @@ def _build_legal_status_lookup(df: pd.DataFrame) -> dict[str, str]:
         if not status:
             continue
 
-        for col in ["publication_number", "registration_number"]:
+        for col in PATENT_NUMBER_COLUMNS:
             patent_no = str(row.get(col, "") or "").strip()
             if not patent_no:
                 continue
@@ -875,7 +1129,7 @@ def _build_patent_application_number_lookup(df: pd.DataFrame) -> dict[str, str]:
         if not application_number:
             continue
 
-        for col in ["publication_number", "registration_number"]:
+        for col in PATENT_NUMBER_COLUMNS:
             patent_no = str(row.get(col, "") or "").strip()
             if not patent_no:
                 continue
@@ -897,7 +1151,7 @@ def _build_patent_publication_date_lookup(df: pd.DataFrame) -> dict[str, object]
 
     for _, row in df.iterrows():
         publication_date = row.get("publication_date")
-        for col in ["publication_number", "registration_number"]:
+        for col in PATENT_NUMBER_COLUMNS:
             patent_no = str(row.get(col, "") or "").strip()
             if not patent_no:
                 continue
@@ -918,7 +1172,7 @@ def _build_patent_application_date_lookup(df: pd.DataFrame) -> dict[str, object]
 
     for _, row in df.iterrows():
         application_date = row.get("application_date")
-        for col in ["publication_number", "registration_number"]:
+        for col in PATENT_NUMBER_COLUMNS:
             patent_no = str(row.get(col, "") or "").strip()
             if not patent_no:
                 continue
