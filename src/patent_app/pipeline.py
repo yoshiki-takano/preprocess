@@ -485,6 +485,13 @@ def _apply_wo_prior_republication_as_jp(
     if len(fill_index) > 0:
         out.loc[fill_index, "application_number"] = matched_rows.loc[fill_index, "application_number_jp"]
 
+    # WO の表示用出願番号は保持しつつ、マッチングキーは JP 側出願番号に寄せる
+    if "_pairing_key_override" not in out.columns:
+        out["_pairing_key_override"] = ""
+    override_index = matched_rows.index[jp_has]
+    if len(override_index) > 0:
+        out.loc[override_index, "_pairing_key_override"] = matched_rows.loc[override_index, "application_number_jp"].values
+
     if "_pairing_date_override" not in out.columns:
         out["_pairing_date_override"] = pd.NaT
     matched_dates = pd.to_datetime(merged.loc[matched, "application_date_jp"], errors="coerce")
