@@ -598,7 +598,7 @@ def test_excluded_rows_can_be_pairing_counterparts_but_are_not_selected() -> Non
     selected, _ = run_selection_pipeline(df, cfg)
 
     assert len(selected) == 1
-    assert selected.iloc[0]["selected_patent_number"] == "WO2020001234A1"
+    assert selected.iloc[0]["selected_patent_number"] == "JP7000000B2"
     assert selected.iloc[0]["publication_number"] == "WO2020001234A1"
     assert selected.iloc[0]["registration_number"] == "JP7000000B2"
     assert selected.iloc[0]["legal_status"] == "Alive"
@@ -1199,6 +1199,53 @@ def test_publication_date_is_resolved_from_selected_patent_number() -> None:
     assert len(selected) == 1
     assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
     assert pd.to_datetime(selected.iloc[0]["publication_date"]) == pd.Timestamp("2024-07-29")
+
+
+def test_exclude_invalid_avoids_dead_selected_patent_number() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "WO2020JP7047A",
+                "application_date": pd.Timestamp("2020-02-21"),
+                "publication_number": "WO2020189179A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-09-24"),
+                "registration_date": pd.NaT,
+                "legal_status": "Dead",
+                "kind": "A1",
+                "accession_number": "ACC_EX_INVALID_SEL",
+                "family_id": "F_EX_INVALID_SEL",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "JP2021507126A",
+                "application_date": pd.Timestamp("2020-02-21"),
+                "publication_number": "",
+                "registration_number": "JP07524160B2",
+                "publication_date": pd.Timestamp("2024-07-29"),
+                "registration_date": pd.Timestamp("2024-07-29"),
+                "legal_status": "Alive",
+                "kind": "B2",
+                "accession_number": "ACC_EX_INVALID_SEL",
+                "family_id": "F_EX_INVALID_SEL",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "WO"],
+        exclude_invalid=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
+    assert selected.iloc[0]["publication_number"] == ""
+    assert selected.iloc[0]["registration_number"] == "JP07524160B2"
 
 
 def test_application_date_is_resolved_from_selected_patent_number() -> None:

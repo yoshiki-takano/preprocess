@@ -103,6 +103,7 @@ def run_selection_pipeline(
 
     _notify_progress(progress_callback, 56, "関連データを準備しています...")
     no_acc_df = _extract_no_acc(selectable)
+    patent_status_lookup = _build_legal_status_lookup(working)
     legal_status_lookup = _build_legal_status_lookup(selectable)
     paired = _pair_publication_registration_by_application(working)
     patent_application_date_lookup = _build_patent_application_date_lookup(working)
@@ -175,7 +176,12 @@ def run_selection_pipeline(
         errors="ignore",
     )
     selected["selected_patent_number"] = selected.apply(
-        lambda row: _resolve_selected_patent_number(row, config.priority_basis),
+        lambda row: _resolve_selected_patent_number(
+            row,
+            config.priority_basis,
+            exclude_invalid=config.exclude_invalid,
+            status_lookup=patent_status_lookup,
+        ),
         axis=1,
     )
     selected = _resolve_application_date_from_selected_patent(selected, patent_application_date_lookup)
@@ -756,13 +762,30 @@ def _choose_country(countries: list[str], priority: list[str]) -> str:
     return sorted(normalized)[0]
 
 
-def _resolve_selected_patent_number(row: pd.Series, priority_basis: str) -> str:
+def _resolve_selected_patent_number(
+    row: pd.Series,
+    priority_basis: str,
+    exclude_invalid: bool = False,
+    status_lookup: dict[str, str] | None = None,
+) -> str:
     reg_no = str(row.get("registration_number", "") or "").strip()
     pub_no = str(row.get("publication_number", "") or "").strip()
 
     if priority_basis == "registration":
-        return reg_no or pub_no
-    return pub_no or reg_no
+        primary_no = reg_no
+        fallback_no = pub_no
+    else:
+        primary_no = pub_no
+        fallback_no = reg_no
+
+    if exclude_invalid and primary_no:
+        status_lookup = status_lookup or {}
+        primary_status = str(status_lookup.get(primary_no, "") or "").strip().lower()
+        fallback_status = str(status_lookup.get(fallback_no, "") or "").strip().lower()
+        if _contains_exclude_status(primary_status) and fallback_no and not _contains_exclude_status(fallback_status):
+            return fallback_no
+
+    return primary_no or fallback_no
 
 
 def _reorder_selected_columns(df: pd.DataFrame) -> pd.DataFrame:
