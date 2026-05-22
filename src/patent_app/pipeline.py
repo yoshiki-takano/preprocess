@@ -160,6 +160,7 @@ def run_selection_pipeline(
             "_rank_date",
             "_pairing_application_key",
             "_pairing_key_override",
+            "_pairing_date_override",
             "_rank_application_date",
             "_rank_publication_date",
             "_rank_application_number_numeric",
@@ -293,6 +294,10 @@ def _build_pairing_match_keys(df: pd.DataFrame) -> pd.Series:
     else:
         app_date_series = pd.Series(pd.NaT, index=df.index)
 
+    if "_pairing_date_override" in df.columns:
+        override = pd.to_datetime(df["_pairing_date_override"], errors="coerce")
+        app_date_series = app_date_series.mask(override.notna(), override)
+
     keys = app_series.copy()
     us_mask = country_series.eq("US")
     if not us_mask.any():
@@ -409,6 +414,13 @@ def _apply_wo_republication_as_jp(
                 out["_pairing_key_override"] = ""
             out.loc[target_idx, "_pairing_key_override"] = merged.loc[target_idx, "application_number_jpx"].values
 
+            # マッチング用の内部出願日を保持する（表示列の application_date は更新しない）
+            if "_pairing_date_override" not in out.columns:
+                out["_pairing_date_override"] = pd.NaT
+            out.loc[target_idx, "_pairing_date_override"] = pd.to_datetime(
+                merged.loc[target_idx, "application_date"], errors="coerce"
+            ).values
+
     out.loc[repub_mask, "_country_priority_code"] = "JP"
     return out, repub_mask
 
@@ -440,13 +452,20 @@ def _apply_wo_prior_republication_as_jp(
     if not wo_a1_all_mask.any() or not jp_a1_mask.any():
         return out
 
-    jp_lookup = out.loc[jp_a1_mask, ["accession_number", "application_number", "publication_date"]].copy()
+    jp_lookup = out.loc[
+        jp_a1_mask, ["accession_number", "application_number", "application_date", "publication_date"]
+    ].copy()
     jp_lookup["_pub_body"] = pub_body.loc[jp_a1_mask]
     jp_lookup["_matched_jp"] = True
     jp_lookup = (
         jp_lookup.sort_values(by=["publication_date", "application_number"], ascending=[True, True], na_position="last")
         .drop_duplicates(subset=["accession_number", "_pub_body"], keep="first")
-        .rename(columns={"application_number": "application_number_jp"})
+        .rename(
+            columns={
+                "application_number": "application_number_jp",
+                "application_date": "application_date_jp",
+            }
+        )
     )
 
     targets = out.loc[wo_a1_all_mask, ["accession_number", "application_number"]].copy()
@@ -465,6 +484,13 @@ def _apply_wo_prior_republication_as_jp(
     fill_index = matched_rows.index[jp_has & wo_empty.values]
     if len(fill_index) > 0:
         out.loc[fill_index, "application_number"] = matched_rows.loc[fill_index, "application_number_jp"]
+
+    if "_pairing_date_override" not in out.columns:
+        out["_pairing_date_override"] = pd.NaT
+    matched_dates = pd.to_datetime(merged.loc[matched, "application_date_jp"], errors="coerce")
+    has_date = matched_dates.notna()
+    if has_date.any():
+        out.loc[matched_dates.index[has_date], "_pairing_date_override"] = matched_dates.loc[has_date].values
 
     matched_effect_mask = matched & ~effective_skip.reindex(merged.index, fill_value=False)
 
