@@ -158,16 +158,13 @@ def _load_kind_code_lookup() -> dict[tuple[str, str], str]:
     if not required.issubset(set(df.columns)):
         return {}
 
-    lookup: dict[tuple[str, str], str] = {}
-    for _, row in df.iterrows():
-        country = str(row["COUNTRY_CODE"]).strip().upper()
-        kind = str(row["DWPI_KIND"]).strip().upper()
-        puab = str(row["PUAB"]).strip().upper()
-        if not country or not kind or not puab:
-            continue
-        lookup[(country, kind)] = puab
+    country = df["COUNTRY_CODE"].fillna("").astype(str).str.strip().str.upper()
+    kind = df["DWPI_KIND"].fillna("").astype(str).str.strip().str.upper()
+    puab = df["PUAB"].fillna("").astype(str).str.strip().str.upper()
 
-    return lookup
+    valid = country.ne("") & kind.ne("") & puab.ne("")
+    keys = zip(country[valid], kind[valid])
+    return dict(zip(keys, puab[valid]))
 
 
 def _extract_kind_code(doc_number: str) -> str:
@@ -198,31 +195,34 @@ def _classify_pub_reg_by_kind_code(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     out = df.copy()
+    pub_num = out["publication_number"].fillna("").astype(str).str.strip()
+    reg_num = out["registration_number"].fillna("").astype(str).str.strip()
 
-    for idx, row in out.iterrows():
-        pub_num = row.get("publication_number", "")
-        reg_num = row.get("registration_number", "")
+    only_pub_mask = pub_num.ne("") & reg_num.eq("")
+    only_reg_mask = reg_num.ne("") & pub_num.eq("")
 
-        pub_num = str(pub_num).strip() if pd.notna(pub_num) else ""
-        reg_num = str(reg_num).strip() if pd.notna(reg_num) else ""
+    to_registration_mask = pd.Series(False, index=out.index)
+    if only_pub_mask.any():
+        pub_only = pub_num[only_pub_mask]
+        country = pub_only.map(_extract_country_from_publication)
+        kind_code = pub_only.map(_extract_kind_code)
+        puab = pd.Series([lookup.get((cc, kc), "") for cc, kc in zip(country, kind_code)], index=pub_only.index)
+        is_us_reissue = country.eq("US") & pub_only.str.upper().str.startswith("USRE")
+        to_registration_mask.loc[pub_only.index] = is_us_reissue | puab.isin({"PB", "UB"})
 
-        # If source contains only one number column, re-route by PUAB meaning.
-        if pub_num and not reg_num:
-            country = _extract_country_from_publication(pub_num)
-            kind_code = _extract_kind_code(pub_num)
-            puab = lookup.get((country, kind_code), "")
-            # US reissue patents (USRE...) are registration-side documents.
-            if (country == "US" and pub_num.upper().startswith("USRE")) or puab in {"PB", "UB"}:
-                out.at[idx, "registration_number"] = pub_num
-                out.at[idx, "publication_number"] = ""
+    to_publication_mask = pd.Series(False, index=out.index)
+    if only_reg_mask.any():
+        reg_only = reg_num[only_reg_mask]
+        country = reg_only.map(_extract_country_from_publication)
+        kind_code = reg_only.map(_extract_kind_code)
+        puab = pd.Series([lookup.get((cc, kc), "") for cc, kc in zip(country, kind_code)], index=reg_only.index)
+        to_publication_mask.loc[reg_only.index] = puab.isin({"PA", "UA"})
 
-        elif reg_num and not pub_num:
-            country = _extract_country_from_publication(reg_num)
-            kind_code = _extract_kind_code(reg_num)
-            puab = lookup.get((country, kind_code), "")
-            if puab in {"PA", "UA"}:
-                out.at[idx, "publication_number"] = reg_num
-                out.at[idx, "registration_number"] = ""
+    out.loc[to_registration_mask, "registration_number"] = pub_num[to_registration_mask]
+    out.loc[to_registration_mask, "publication_number"] = ""
+
+    out.loc[to_publication_mask, "publication_number"] = reg_num[to_publication_mask]
+    out.loc[to_publication_mask, "registration_number"] = ""
 
     return out
 

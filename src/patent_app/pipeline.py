@@ -44,14 +44,12 @@ def _load_kind_code_lookup_pipeline() -> dict[tuple[str, str], str]:
     df = pd.read_csv(csv_path, dtype=str).fillna("")
     if not {"COUNTRY_CODE", "DWPI_KIND", "PUAB"}.issubset(set(df.columns)):
         return {}
-    lookup: dict[tuple[str, str], str] = {}
-    for _, row in df.iterrows():
-        country = str(row["COUNTRY_CODE"]).strip().upper()
-        kind = str(row["DWPI_KIND"]).strip().upper()
-        puab = str(row["PUAB"]).strip().upper()
-        if country and kind and puab:
-            lookup[(country, kind)] = puab
-    return lookup
+    country = df["COUNTRY_CODE"].fillna("").astype(str).str.strip().str.upper()
+    kind = df["DWPI_KIND"].fillna("").astype(str).str.strip().str.upper()
+    puab = df["PUAB"].fillna("").astype(str).str.strip().str.upper()
+    valid = country.ne("") & kind.ne("") & puab.ne("")
+    keys = zip(country[valid], kind[valid])
+    return dict(zip(keys, puab[valid]))
 
 
 def _resolve_puab_for_row(row: pd.Series) -> str:
@@ -831,23 +829,32 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
 
     country_col = "_country_priority_code" if "_country_priority_code" in df.columns else "country_code"
 
-    family_key = df["family_id"].fillna("").replace("", pd.NA)
     with_key = df.copy()
+    family_key = with_key["family_id"].fillna("").replace("", pd.NA)
     with_key["_family_key"] = family_key
     missing_mask = with_key["_family_key"].isna()
     with_key.loc[missing_mask, "_family_key"] = with_key.index.astype(str)[missing_mask]
 
-    selected_frames: list[pd.DataFrame] = []
-    for _, group in with_key.groupby("_family_key", dropna=False):
-        countries = [c for c in group[country_col].fillna("").astype(str).str.upper().unique() if c]
-        target_country = _choose_country(countries, country_priority)
-        if not target_country:
-            selected_frames.append(group)
-            continue
-        selected_frames.append(group[group[country_col].fillna("").astype(str).str.upper() == target_country])
+    country = with_key[country_col].fillna("").astype(str).str.upper().str.strip()
+    with_key["_country_norm"] = country
+    has_country = country.ne("")
 
-    out = pd.concat(selected_frames, ignore_index=True)
-    return out.drop(columns=["_family_key", "_country_priority_code"], errors="ignore")
+    normalized_priority = [p.upper() for p in country_priority]
+    priority_rank = {code: idx for idx, code in enumerate(normalized_priority)}
+    fallback_rank = len(priority_rank)
+
+    rank = country.map(priority_rank).fillna(fallback_rank)
+    family_min_rank = rank.groupby(with_key["_family_key"], dropna=False).transform("min")
+    family_has_any_country = has_country.groupby(with_key["_family_key"], dropna=False).transform("any")
+    family_alpha_country = country.where(has_country).groupby(with_key["_family_key"], dropna=False).transform("min")
+
+    has_priority_match = family_min_rank.lt(fallback_rank)
+    keep_priority = has_priority_match & has_country & rank.eq(family_min_rank)
+    keep_alpha = (~has_priority_match) & has_country & country.eq(family_alpha_country)
+    keep_all_when_no_country = ~family_has_any_country
+
+    out = with_key[keep_priority | keep_alpha | keep_all_when_no_country].copy()
+    return out.drop(columns=["_family_key", "_country_norm", "_country_priority_code"], errors="ignore")
 
 
 def _assign_group_key(df: pd.DataFrame, column: str) -> pd.DataFrame:
@@ -928,7 +935,8 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     ranked = _filter_min_revision(ranked, "_pub_base", "_pub_revision")
     ranked = _filter_min_revision(ranked, "_reg_base", "_reg_revision")
     # 特許(0)を実案(1)より常に優先する
-    ranked["_is_utility"] = ranked.apply(lambda row: 1 if _resolve_puab_for_row(row) in {"UA", "UB"} else 0, axis=1)
+    puab = _resolve_puab_for_numbers(ranked["publication_number"], ranked["registration_number"])
+    ranked["_is_utility"] = puab.isin({"UA", "UB"}).astype(int)
 
     ascending_date = config.date_policy == "earliest"
 
@@ -959,6 +967,7 @@ def _build_revision_sort_columns(series: pd.Series, prefix: str) -> pd.DataFrame
     return out
 
 
+@lru_cache(maxsize=200_000)
 def _parse_revision_sort_parts(value: str) -> tuple[str, int]:
     text = _normalize_publication_number(value)
     if text == "":
@@ -973,6 +982,22 @@ def _parse_revision_sort_parts(value: str) -> tuple[str, int]:
         return text, 999
 
     return f"{head}{kind_symbol}", int(revision)
+
+
+def _resolve_puab_for_numbers(publication_number: pd.Series, registration_number: pd.Series) -> pd.Series:
+    lookup = _load_kind_code_lookup_pipeline()
+    if not lookup:
+        return pd.Series("", index=publication_number.index, dtype="object")
+
+    pub_no = publication_number.fillna("").astype(str).str.strip()
+    reg_no = registration_number.fillna("").astype(str).str.strip()
+    doc_no = pub_no.mask(pub_no == "", reg_no)
+    value = doc_no.str.upper().str.replace(" ", "", regex=False)
+
+    country = value.str.extract(r"^([A-Za-z]{2})", expand=False).fillna("").str.upper()
+    kind_code = value.str.extract(r"([A-Z]{1,2}\d{0,2})$", expand=False).fillna("")
+
+    return pd.Series([lookup.get((cc, kc), "") for cc, kc in zip(country, kind_code)], index=publication_number.index)
 
 
 def _filter_min_revision(df: pd.DataFrame, base_col: str, rev_col: str) -> pd.DataFrame:
