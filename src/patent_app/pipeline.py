@@ -874,12 +874,21 @@ def _assign_group_key(df: pd.DataFrame, column: str) -> pd.DataFrame:
 
 
 def _build_effective_family_key(df: pd.DataFrame) -> pd.Series:
-    if "family_id" not in df.columns:
-        return pd.Series(pd.NA, index=df.index)
+    if "family_id" in df.columns:
+        family = df["family_id"].fillna("").astype(str).str.strip()
+    else:
+        family = pd.Series("", index=df.index)
 
-    family = df["family_id"].fillna("").astype(str).str.strip()
-    missing = family.eq("") | family.str.lower().isin(NO_ACC_TOKENS)
-    return family.mask(missing, pd.NA)
+    family_missing = family.eq("") | family.str.lower().isin(NO_ACC_TOKENS)
+
+    if "application_number" in df.columns:
+        application = df["application_number"].fillna("").astype(str).str.strip()
+    else:
+        application = pd.Series("", index=df.index)
+
+    family = family.mask(family_missing, application)
+    family = family.mask(family.eq("") | family.str.lower().isin(NO_ACC_TOKENS), pd.NA)
+    return family
 
 
 def _resolve_priority_number_series(df: pd.DataFrame, priority_basis: str) -> pd.Series:
