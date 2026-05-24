@@ -212,16 +212,19 @@ if uploaded_files:
         st.session_state["output_bytes"] = None
         st.session_state["result_error"] = None
 
-    raw_dfs: list[pd.DataFrame] = []
+    canonical_preview_dfs: list[pd.DataFrame] = []
     for uploaded_file in uploaded_files:
         raw_file_df = load_dataframe(uploaded_file.name, uploaded_file.getvalue())
-        raw_file_df["source_file"] = uploaded_file.name
-        raw_dfs.append(raw_file_df)
+        file_columns = list(raw_file_df.columns)
+        mapping = resolve_column_mapping(file_columns)
+        canonical_file_df = canonicalize_dataframe(raw_file_df, mapping)
+        canonical_file_df["source_file"] = uploaded_file.name
+        canonical_preview_dfs.append(canonical_file_df)
 
-    raw_df = pd.concat(raw_dfs, ignore_index=True)
-    raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(raw_df)
+    preview_df = pd.concat(canonical_preview_dfs, ignore_index=True)
+    raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(preview_df)
     _render_paginated_dataframe(
-        raw_df,
+        preview_df,
         "入力プレビュー",
         "raw_preview",
         family_count=raw_family_count,
@@ -232,21 +235,8 @@ if uploaded_files:
     if run_clicked:
         progress = st.progress(0, text="抽出処理を開始しています...")
         try:
-            canonical_dfs: list[pd.DataFrame] = []
-            total_files = len(uploaded_files)
-            for idx, uploaded_file in enumerate(uploaded_files, start=1):
-                raw_file_df = load_dataframe(uploaded_file.name, uploaded_file.getvalue())
-                file_columns = list(raw_file_df.columns)
-
-                progress.progress(8, text=f"列マッピングを解決しています... ({idx}/{total_files})")
-                mapping = resolve_column_mapping(file_columns)
-
-                progress.progress(16, text=f"入力データを正規化しています... ({idx}/{total_files})")
-                canonical_file_df = canonicalize_dataframe(raw_file_df, mapping)
-                canonical_file_df["source_file"] = uploaded_file.name
-                canonical_dfs.append(canonical_file_df)
-
-            canonical_df = pd.concat(canonical_dfs, ignore_index=True)
+            progress.progress(16, text="入力データを正規化しています...")
+            canonical_df = preview_df.copy()
 
             progress.progress(24, text="抽出条件を準備しています...")
             cfg = SelectionConfig(
