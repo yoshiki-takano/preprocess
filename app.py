@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import sys
+import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -168,6 +170,21 @@ def _compute_family_no_acc_counts(df) -> tuple[int | None, int | None]:
     return int(family_count), int(no_acc_count)
 
 
+def _detect_output_extension(output_bytes: bytes, template_is_xlsm: bool) -> str:
+    if not template_is_xlsm:
+        return "xlsx"
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(output_bytes), "r") as archive:
+            names = set(archive.namelist())
+            has_vba_project = "xl/vbaProject.bin" in names
+            content_types = archive.read("[Content_Types].xml")
+            has_macro_content_type = b"application/vnd.ms-excel.sheet.macroEnabled.main+xml" in content_types
+            return "xlsm" if has_vba_project or has_macro_content_type else "xlsx"
+    except Exception:
+        return "xlsx"
+
+
 if "priority_basis" not in st.session_state:
     st.session_state["priority_basis"] = "registration"
 if "date_policy" not in st.session_state:
@@ -300,13 +317,15 @@ if uploaded_files:
             family_count=selected_family_count,
         )
 
-        output_extension = "xlsm" if template_is_xlsm else "xlsx"
+        output_extension = _detect_output_extension(st.session_state["output_bytes"], template_is_xlsm)
         output_file_name = f"{date.today():%Y%m%d}_selected_patents.{output_extension}"
         output_mime = (
             "application/vnd.ms-excel.sheet.macroEnabled.12"
-            if template_is_xlsm
+            if output_extension == "xlsm"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+        if template_is_xlsm and output_extension != "xlsm":
+            st.warning("テンプレートの読み込み互換性問題により、出力形式を .xlsx に切り替えました。")
         st.download_button(
             label=f"結果をダウンロード (.{output_extension})",
             data=st.session_state["output_bytes"],
