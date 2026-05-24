@@ -212,24 +212,43 @@ if uploaded_files:
         st.session_state["output_bytes"] = None
         st.session_state["result_error"] = None
 
+    raw_preview_items: list[tuple[str, pd.DataFrame]] = []
     canonical_preview_dfs: list[pd.DataFrame] = []
     for uploaded_file in uploaded_files:
         raw_file_df = load_dataframe(uploaded_file.name, uploaded_file.getvalue())
+        raw_preview_df = raw_file_df.copy()
+        raw_preview_df["source_file"] = uploaded_file.name
+        raw_preview_items.append((uploaded_file.name, raw_preview_df))
+
         file_columns = list(raw_file_df.columns)
         mapping = resolve_column_mapping(file_columns)
         canonical_file_df = canonicalize_dataframe(raw_file_df, mapping)
         canonical_file_df["source_file"] = uploaded_file.name
         canonical_preview_dfs.append(canonical_file_df)
 
-    preview_df = pd.concat(canonical_preview_dfs, ignore_index=True)
-    raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(preview_df)
-    _render_paginated_dataframe(
-        preview_df,
-        "入力プレビュー",
-        "raw_preview",
-        family_count=raw_family_count,
-        no_acc_count=raw_no_acc_count,
-    )
+    if len(raw_preview_items) == 1:
+        _, preview_df = raw_preview_items[0]
+        raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(preview_df)
+        _render_paginated_dataframe(
+            preview_df,
+            "入力プレビュー",
+            "raw_preview_0",
+            family_count=raw_family_count,
+            no_acc_count=raw_no_acc_count,
+        )
+    else:
+        st.subheader("入力プレビュー (元列順・ファイル別)")
+        tabs = st.tabs([name for name, _ in raw_preview_items])
+        for idx, (tab, (file_name, preview_df)) in enumerate(zip(tabs, raw_preview_items)):
+            with tab:
+                raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(preview_df)
+                _render_paginated_dataframe(
+                    preview_df,
+                    file_name,
+                    f"raw_preview_{idx}",
+                    family_count=raw_family_count,
+                    no_acc_count=raw_no_acc_count,
+                )
 
     run_clicked = st.button("抽出実行", type="primary")
     if run_clicked:
