@@ -31,7 +31,7 @@ def build_xlsx_bytes(
     else:
         wb = Workbook()
 
-    results_ws = _get_or_create_sheet(wb, "Results")
+    results_ws = _get_or_create_sheet(wb, "SearchData")
     _write_dataframe(results_ws, selected_df.rename(columns=OUTPUT_COLUMN_RENAME))
 
     if "NoAcc" in wb.sheetnames:
