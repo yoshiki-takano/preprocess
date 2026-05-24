@@ -1555,3 +1555,64 @@ def test_patent_is_preferred_over_utility_model_in_same_family() -> None:
     assert len(selected) == 1
     # 特許 (B4) が選ばれ、実案 (U1) は選ばれないこと
     assert "B4" in str(selected.iloc[0]["selected_patent_number"])
+
+
+def test_source_file_aggregates_by_application_when_accession_is_blank() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "JP2020552640A",
+                "application_date": pd.Timestamp("2019-10-30"),
+                "publication_number": "WO2020085513A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-04-30"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "A1",
+                "accession_number": "202035917C",
+                "family_id": "F_SRC",
+                "country_code": "WO",
+                "source_file": "no_acc_eng.xlsx",
+            },
+            {
+                "application_number": "JP2020552640A",
+                "application_date": pd.Timestamp("2019-10-30"),
+                "publication_number": "WO2020085513A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2020-04-30"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "A1",
+                "accession_number": "202035917C",
+                "family_id": "F_SRC",
+                "country_code": "WO",
+                "source_file": "no_acc_jp.xlsx",
+            },
+            {
+                "application_number": "JP2020552640A",
+                "application_date": pd.Timestamp("2019-10-30"),
+                "publication_number": "",
+                "registration_number": "JP07858523B2",
+                "publication_date": pd.Timestamp("2024-01-01"),
+                "registration_date": pd.Timestamp("2024-01-01"),
+                "legal_status": "Alive",
+                "kind": "B2",
+                "accession_number": "",
+                "family_id": "F_SRC",
+                "country_code": "JP",
+                "source_file": "no_acc_jp.xlsx",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP", "WO"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    source_files = set(str(selected.iloc[0]["source_file"]).split(" | "))
+    assert source_files == {"no_acc_eng.xlsx", "no_acc_jp.xlsx"}

@@ -1331,6 +1331,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
         accession_app_lookup,
         patent_source_lookup,
         accession_app_source_lookup,
+        application_source_lookup,
     ) = _build_source_row_lookup(canonical_df)
 
     title_en: list[str] = []
@@ -1350,6 +1351,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             row,
             patent_source_lookup,
             accession_app_source_lookup,
+            application_source_lookup,
         )
         if source_row is None:
             title_en.append("")
@@ -1399,11 +1401,13 @@ def _build_source_row_lookup(
     dict[tuple[str, str], dict[str, object]],
     dict[str, set[str]],
     dict[tuple[str, str], set[str]],
+    dict[str, set[str]],
 ]:
     patent_lookup: dict[str, dict[str, object]] = {}
     accession_app_lookup: dict[tuple[str, str], dict[str, object]] = {}
     patent_source_lookup: dict[str, set[str]] = defaultdict(set)
     accession_app_source_lookup: dict[tuple[str, str], set[str]] = defaultdict(set)
+    application_source_lookup: dict[str, set[str]] = defaultdict(set)
 
     for row_dict in canonical_df.to_dict("records"):
         accession = _as_text(row_dict.get("accession_number", ""))
@@ -1415,6 +1419,8 @@ def _build_source_row_lookup(
                 accession_app_lookup[key] = row_dict
             if source_file:
                 accession_app_source_lookup[key].add(source_file)
+        if app_no and source_file:
+            application_source_lookup[app_no].add(source_file)
 
         for col in ["publication_number", "registration_number"]:
             patent_no = _as_text(row_dict.get(col, ""))
@@ -1423,28 +1429,43 @@ def _build_source_row_lookup(
             if patent_no and source_file:
                 patent_source_lookup[patent_no].add(source_file)
 
-    return patent_lookup, accession_app_lookup, patent_source_lookup, accession_app_source_lookup
+    return (
+        patent_lookup,
+        accession_app_lookup,
+        patent_source_lookup,
+        accession_app_source_lookup,
+        application_source_lookup,
+    )
 
 
 def _resolve_source_files(
     selected_row: pd.Series,
     patent_source_lookup: dict[str, set[str]],
     accession_app_source_lookup: dict[tuple[str, str], set[str]],
+    application_source_lookup: dict[str, set[str]],
 ) -> str:
+    sources: set[str] = set()
+
     selected_no = _as_text(selected_row.get("selected_patent_number", ""))
     if selected_no and selected_no in patent_source_lookup:
-        return _join_unique_non_empty(sorted(patent_source_lookup[selected_no]))
+        sources.update(patent_source_lookup[selected_no])
 
     for col in ["publication_number", "registration_number"]:
         patent_no = _as_text(selected_row.get(col, ""))
         if patent_no and patent_no in patent_source_lookup:
-            return _join_unique_non_empty(sorted(patent_source_lookup[patent_no]))
+            sources.update(patent_source_lookup[patent_no])
 
     accession = _as_text(selected_row.get("accession_number", ""))
     app_no = _as_text(selected_row.get("application_number", ""))
     key = (accession, app_no)
     if key in accession_app_source_lookup:
-        return _join_unique_non_empty(sorted(accession_app_source_lookup[key]))
+        sources.update(accession_app_source_lookup[key])
+
+    if app_no and app_no in application_source_lookup:
+        sources.update(application_source_lookup[app_no])
+
+    if sources:
+        return _join_unique_non_empty(sorted(sources))
 
     return _as_text(selected_row.get("source_file", ""))
 
