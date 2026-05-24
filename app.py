@@ -4,6 +4,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 sys.path.append(str(Path(__file__).parent / "src"))
@@ -32,7 +33,11 @@ if start_month == 13:
     start_year += 1
 default_start_date = date(start_year, start_month, 1)
 
-uploaded = st.file_uploader("入力ファイル (.xlsx/.xlsm/.csv)", type=["xlsx", "xlsm", "csv"])
+uploaded_files = st.file_uploader(
+    "入力ファイル (.xlsx/.xlsm/.csv)",
+    type=["xlsx", "xlsm", "csv"],
+    accept_multiple_files=True,
+)
 template = st.file_uploader("出力テンプレート (.xlsx/.xlsm, 任意)", type=["xlsx", "xlsm"])
 
 st.subheader("除外条件")
@@ -173,8 +178,14 @@ if "output_bytes" not in st.session_state:
     st.session_state["output_bytes"] = None
 if "result_error" not in st.session_state:
     st.session_state["result_error"] = None
-if "uploaded_name" not in st.session_state:
-    st.session_state["uploaded_name"] = None
+if "uploaded_files_key" not in st.session_state:
+    st.session_state["uploaded_files_key"] = None
+
+
+def _build_uploaded_files_key(files) -> tuple[tuple[str, int], ...] | None:
+    if not files:
+        return None
+    return tuple(sorted((f.name, f.size) for f in files))
 
 
 col1, col2, col3 = st.columns(3)
@@ -193,14 +204,21 @@ date_policy = col3.selectbox(
     key="date_policy",
 )
 
-if uploaded:
-    if st.session_state["uploaded_name"] != uploaded.name:
-        st.session_state["uploaded_name"] = uploaded.name
+if uploaded_files:
+    current_files_key = _build_uploaded_files_key(uploaded_files)
+    if st.session_state["uploaded_files_key"] != current_files_key:
+        st.session_state["uploaded_files_key"] = current_files_key
         st.session_state["selected_df"] = None
         st.session_state["output_bytes"] = None
         st.session_state["result_error"] = None
 
-    raw_df = load_dataframe(uploaded.name, uploaded.getvalue())
+    raw_dfs: list[pd.DataFrame] = []
+    for uploaded_file in uploaded_files:
+        raw_file_df = load_dataframe(uploaded_file.name, uploaded_file.getvalue())
+        raw_file_df["source_file"] = uploaded_file.name
+        raw_dfs.append(raw_file_df)
+
+    raw_df = pd.concat(raw_dfs, ignore_index=True)
     raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(raw_df)
     _render_paginated_dataframe(
         raw_df,
@@ -210,18 +228,25 @@ if uploaded:
         no_acc_count=raw_no_acc_count,
     )
 
-    source_columns = list(raw_df.columns)
-
     run_clicked = st.button("抽出実行", type="primary")
     if run_clicked:
         progress = st.progress(0, text="抽出処理を開始しています...")
         try:
-            progress.progress(8, text="列マッピングを解決しています...")
-            mapping = resolve_column_mapping(source_columns)
+            canonical_dfs: list[pd.DataFrame] = []
+            total_files = len(uploaded_files)
+            for idx, uploaded_file in enumerate(uploaded_files, start=1):
+                raw_file_df = load_dataframe(uploaded_file.name, uploaded_file.getvalue())
+                file_columns = list(raw_file_df.columns)
 
-            progress.progress(16, text="入力データを正規化しています...")
-            canonical_df = canonicalize_dataframe(raw_df, mapping)
-            canonical_df["source_file"] = uploaded.name
+                progress.progress(8, text=f"列マッピングを解決しています... ({idx}/{total_files})")
+                mapping = resolve_column_mapping(file_columns)
+
+                progress.progress(16, text=f"入力データを正規化しています... ({idx}/{total_files})")
+                canonical_file_df = canonicalize_dataframe(raw_file_df, mapping)
+                canonical_file_df["source_file"] = uploaded_file.name
+                canonical_dfs.append(canonical_file_df)
+
+            canonical_df = pd.concat(canonical_dfs, ignore_index=True)
 
             progress.progress(24, text="抽出条件を準備しています...")
             cfg = SelectionConfig(

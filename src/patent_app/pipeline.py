@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -1325,7 +1326,12 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             out[col] = ""
         return out
 
-    patent_lookup, accession_app_lookup = _build_source_row_lookup(canonical_df)
+    (
+        patent_lookup,
+        accession_app_lookup,
+        patent_source_lookup,
+        accession_app_source_lookup,
+    ) = _build_source_row_lookup(canonical_df)
 
     title_en: list[str] = []
     title_dwpi: list[str] = []
@@ -1336,9 +1342,15 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     five_alive: list[str] = []
     five_dead: list[str] = []
     family_other: list[str] = []
+    source_files: list[str] = []
 
     for _, row in out.iterrows():
         source_row = _resolve_source_row(row, patent_lookup, accession_app_lookup)
+        source_file_value = _resolve_source_files(
+            row,
+            patent_source_lookup,
+            accession_app_source_lookup,
+        )
         if source_row is None:
             title_en.append("")
             title_dwpi.append("")
@@ -1349,6 +1361,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             five_alive.append("")
             five_dead.append("")
             family_other.append("")
+            source_files.append(source_file_value)
             continue
 
         title_en.append(_as_text(source_row.get("title_english", "")))
@@ -1364,6 +1377,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
         five_alive.append(alive_text)
         five_dead.append(dead_text)
         family_other.append(other_text)
+        source_files.append(source_file_value)
 
     out["タイトル（英語）"] = title_en
     out["タイトル - DWPI"] = title_dwpi
@@ -1374,27 +1388,65 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     out["五庁有効ファミリ"] = five_alive
     out["五庁失効ファミリ"] = five_dead
     out["その他ファミリ"] = family_other
+    out["source_file"] = source_files
     return out
 
 
-def _build_source_row_lookup(canonical_df: pd.DataFrame) -> tuple[dict[str, dict[str, object]], dict[tuple[str, str], dict[str, object]]]:
+def _build_source_row_lookup(
+    canonical_df: pd.DataFrame,
+) -> tuple[
+    dict[str, dict[str, object]],
+    dict[tuple[str, str], dict[str, object]],
+    dict[str, set[str]],
+    dict[tuple[str, str], set[str]],
+]:
     patent_lookup: dict[str, dict[str, object]] = {}
     accession_app_lookup: dict[tuple[str, str], dict[str, object]] = {}
+    patent_source_lookup: dict[str, set[str]] = defaultdict(set)
+    accession_app_source_lookup: dict[tuple[str, str], set[str]] = defaultdict(set)
 
     for row_dict in canonical_df.to_dict("records"):
         accession = _as_text(row_dict.get("accession_number", ""))
         app_no = _as_text(row_dict.get("application_number", ""))
+        source_file = _as_text(row_dict.get("source_file", ""))
         if accession or app_no:
             key = (accession, app_no)
             if key not in accession_app_lookup:
                 accession_app_lookup[key] = row_dict
+            if source_file:
+                accession_app_source_lookup[key].add(source_file)
 
         for col in ["publication_number", "registration_number"]:
             patent_no = _as_text(row_dict.get(col, ""))
             if patent_no and patent_no not in patent_lookup:
                 patent_lookup[patent_no] = row_dict
+            if patent_no and source_file:
+                patent_source_lookup[patent_no].add(source_file)
 
-    return patent_lookup, accession_app_lookup
+    return patent_lookup, accession_app_lookup, patent_source_lookup, accession_app_source_lookup
+
+
+def _resolve_source_files(
+    selected_row: pd.Series,
+    patent_source_lookup: dict[str, set[str]],
+    accession_app_source_lookup: dict[tuple[str, str], set[str]],
+) -> str:
+    selected_no = _as_text(selected_row.get("selected_patent_number", ""))
+    if selected_no and selected_no in patent_source_lookup:
+        return _join_unique_non_empty(sorted(patent_source_lookup[selected_no]))
+
+    for col in ["publication_number", "registration_number"]:
+        patent_no = _as_text(selected_row.get(col, ""))
+        if patent_no and patent_no in patent_source_lookup:
+            return _join_unique_non_empty(sorted(patent_source_lookup[patent_no]))
+
+    accession = _as_text(selected_row.get("accession_number", ""))
+    app_no = _as_text(selected_row.get("application_number", ""))
+    key = (accession, app_no)
+    if key in accession_app_source_lookup:
+        return _join_unique_non_empty(sorted(accession_app_source_lookup[key]))
+
+    return _as_text(selected_row.get("source_file", ""))
 
 
 def _resolve_source_row(
