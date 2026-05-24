@@ -231,6 +231,8 @@ if uploaded_files:
         no_acc_count=raw_no_acc_count,
     )
 
+    template_is_xlsm = bool(template and template.name.lower().endswith(".xlsm"))
+
     run_clicked = st.button("抽出実行", type="primary")
     if run_clicked:
         progress = st.progress(0, text="抽出処理を開始しています...")
@@ -272,6 +274,7 @@ if uploaded_files:
             output_bytes = build_xlsx_bytes(
                 selected_df,
                 template_bytes=template.getvalue() if template else None,
+                keep_vba=template_is_xlsm,
             )
             st.session_state["selected_df"] = selected_df
             st.session_state["output_bytes"] = output_bytes
@@ -297,12 +300,18 @@ if uploaded_files:
             family_count=selected_family_count,
         )
 
-        output_file_name = f"{date.today():%Y%m%d}_selected_patents.xlsx"
+        output_extension = "xlsm" if template_is_xlsm else "xlsx"
+        output_file_name = f"{date.today():%Y%m%d}_selected_patents.{output_extension}"
+        output_mime = (
+            "application/vnd.ms-excel.sheet.macroEnabled.12"
+            if template_is_xlsm
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         st.download_button(
-            label="結果をダウンロード (.xlsx)",
+            label=f"結果をダウンロード (.{output_extension})",
             data=st.session_state["output_bytes"],
             file_name=output_file_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            mime=output_mime,
         )
 else:
     st.info("入力ファイルを選択してください。")

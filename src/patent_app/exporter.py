@@ -25,9 +25,10 @@ def build_xlsx_bytes(
     selected_df: pd.DataFrame,
     no_acc_df: pd.DataFrame | None = None,
     template_bytes: bytes | None = None,
+    keep_vba: bool = False,
 ) -> bytes:
     if template_bytes:
-        wb = load_workbook(io.BytesIO(template_bytes))
+        wb = load_workbook(io.BytesIO(template_bytes), keep_vba=keep_vba)
     else:
         wb = Workbook()
 
