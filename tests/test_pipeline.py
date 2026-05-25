@@ -1616,3 +1616,117 @@ def test_source_file_aggregates_by_application_when_accession_is_blank() -> None
     assert len(selected) == 1
     source_files = set(str(selected.iloc[0]["source_file"]).split(" | "))
     assert source_files == {"no_acc_eng.xlsx", "no_acc_jp.xlsx"}
+
+
+def test_country_priority_equal_group_keeps_all_same_rank_countries_when_jp_absent() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_US",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "US20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ",
+                "family_id": "F_EQ",
+                "country_code": "US",
+            },
+            {
+                "application_number": "APP_WO",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "WO20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ",
+                "family_id": "F_EQ",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "APP_EP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "EP20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ",
+                "family_id": "F_EQ",
+                "country_code": "EP",
+            },
+            {
+                "application_number": "APP_CN",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "CN20240001A",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A",
+                "accession_number": "ACC_EQ",
+                "family_id": "F_EQ",
+                "country_code": "CN",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US=WO=EP", "CN", "KR"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 3
+    assert set(selected["country_code"].tolist()) == {"US", "WO", "EP"}
+
+
+def test_country_priority_duplicate_uses_first_occurrence() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_JP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "JP20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_DUP",
+                "family_id": "F_DUP",
+                "country_code": "JP",
+            },
+            {
+                "application_number": "APP_US",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "US20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_DUP",
+                "family_id": "F_DUP",
+                "country_code": "US",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US", "KR", "JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["country_code"] == "JP"

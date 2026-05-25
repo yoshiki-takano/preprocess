@@ -838,8 +838,7 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
     with_key["_country_norm"] = country
     has_country = country.ne("")
 
-    normalized_priority = [p.upper() for p in country_priority]
-    priority_rank = {code: idx for idx, code in enumerate(normalized_priority)}
+    priority_rank = _build_country_priority_rank(country_priority)
     fallback_rank = len(priority_rank)
 
     rank = country.map(priority_rank).fillna(fallback_rank)
@@ -854,6 +853,16 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
 
     out = with_key[keep_priority | keep_alpha | keep_all_when_no_country].copy()
     return out.drop(columns=["_family_key", "_country_norm", "_country_priority_code"], errors="ignore")
+
+
+def _build_country_priority_rank(country_priority: list[str]) -> dict[str, int]:
+    rank: dict[str, int] = {}
+    for idx, raw_group in enumerate(country_priority):
+        parts = [part.strip().upper() for part in str(raw_group).split("=") if part.strip()]
+        for code in parts:
+            if code not in rank:
+                rank[code] = idx
+    return rank
 
 
 def _assign_group_key(df: pd.DataFrame, column: str) -> pd.DataFrame:
