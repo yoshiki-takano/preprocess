@@ -861,6 +861,9 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
         listed_country_codes.update(code for code in parts if code != "BASIC")
 
     rank = country.map(priority_rank).fillna(fallback_rank)
+    if "BASIC" in priority_rank:
+        basic_rank_val = priority_rank["BASIC"]
+        rank = rank.where(~with_key["_is_basic_priority"], rank.clip(upper=basic_rank_val))
     family_min_rank = rank.groupby(with_key["_family_key"], dropna=False).transform("min")
     family_has_any_country = has_country.groupby(with_key["_family_key"], dropna=False).transform("any")
     family_has_basic = with_key["_is_basic_priority"].groupby(with_key["_family_key"], dropna=False).transform("any")
