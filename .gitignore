@@ -16,6 +16,7 @@ env/
 .coverage
 coverage.xml
 htmlcov/
+R/
 
 # Jupyter
 .ipynb_checkpoints/
