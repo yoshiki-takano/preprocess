@@ -90,6 +90,7 @@ SELECTED_HELPER_DROP_COLUMNS = [
     "family_id",
     "registration_date",
     "_country_priority_code",
+    "_is_basic_priority",
     "_is_utility",
     "_has_primary",
     "_rank_date",
@@ -846,25 +847,89 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
     missing_mask = with_key["_family_key"].isna()
     with_key.loc[missing_mask, "_family_key"] = with_key.index.astype(str)[missing_mask]
 
+    with_key["_is_basic_priority"] = _build_basic_priority_mask(with_key)
+
     country = with_key[country_col].fillna("").astype(str).str.upper().str.strip()
+    country = country.mask(with_key["_is_basic_priority"], "BASIC")
     with_key["_country_norm"] = country
     has_country = country.ne("")
 
     priority_rank = _build_country_priority_rank(country_priority)
     fallback_rank = len(priority_rank)
+    listed_country_codes: set[str] = set()
+    for raw_group in country_priority:
+        parts = [part.strip().upper() for part in str(raw_group).split("=") if part.strip()]
+        listed_country_codes.update(code for code in parts if code != "BASIC")
 
     rank = country.map(priority_rank).fillna(fallback_rank)
     family_min_rank = rank.groupby(with_key["_family_key"], dropna=False).transform("min")
     family_has_any_country = has_country.groupby(with_key["_family_key"], dropna=False).transform("any")
-    family_alpha_country = country.where(has_country).groupby(with_key["_family_key"], dropna=False).transform("min")
+    family_has_basic = with_key["_is_basic_priority"].groupby(with_key["_family_key"], dropna=False).transform("any")
+    family_has_listed_country = (
+        with_key[country_col]
+        .fillna("")
+        .astype(str)
+        .str.upper()
+        .str.strip()
+        .isin(listed_country_codes)
+        .groupby(with_key["_family_key"], dropna=False)
+        .transform("any")
+    )
+
+    publication = with_key["publication_number"].map(_normalize_publication_number)
+    has_publication = publication.ne("")
+    family_has_publication = has_publication.groupby(with_key["_family_key"], dropna=False).transform("any")
+    family_publication_min = publication.where(has_publication).groupby(with_key["_family_key"], dropna=False).transform("min")
 
     has_priority_match = family_min_rank.lt(fallback_rank)
     keep_priority = has_priority_match & has_country & rank.eq(family_min_rank)
-    keep_alpha = (~has_priority_match) & has_country & country.eq(family_alpha_country)
-    keep_all_when_no_country = ~family_has_any_country
+    keep_basic_fallback = (~has_priority_match) & (~family_has_listed_country) & with_key["_is_basic_priority"]
+    keep_publication_fallback = (
+        (~has_priority_match)
+        & (~family_has_listed_country)
+        & (~family_has_basic)
+        & has_publication
+        & publication.eq(family_publication_min)
+    )
+    keep_all_when_no_country = (~has_priority_match) & (~family_has_listed_country) & (~family_has_basic) & (~family_has_publication)
+    keep_all_when_country_empty = ~family_has_any_country
 
-    out = with_key[keep_priority | keep_alpha | keep_all_when_no_country].copy()
+    out = with_key[
+        keep_priority
+        | keep_basic_fallback
+        | keep_publication_fallback
+        | keep_all_when_no_country
+        | keep_all_when_country_empty
+    ].copy()
     return out.drop(columns=["_family_key", "_country_norm"], errors="ignore")
+
+
+def _build_basic_priority_mask(df: pd.DataFrame) -> pd.Series:
+    if "dwpi_family_members" not in df.columns or "publication_number" not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    family_first_member = df.groupby("_family_key", dropna=False)["dwpi_family_members"].transform(
+        _first_non_empty_dwpi_member
+    )
+    publication = df["publication_number"].map(_normalize_publication_number)
+    return publication.ne("") & publication.eq(family_first_member)
+
+
+def _first_non_empty_dwpi_member(series: pd.Series) -> str:
+    for value in series:
+        first_member = _extract_first_dwpi_family_member(value)
+        if first_member:
+            return first_member
+    return ""
+
+
+def _extract_first_dwpi_family_member(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    first_token = text.split("|", 1)[0].strip()
+    return _normalize_publication_number(first_token)
 
 
 def _build_country_priority_rank(country_priority: list[str]) -> dict[str, int]:
