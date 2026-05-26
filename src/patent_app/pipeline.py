@@ -850,7 +850,6 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
     with_key["_is_basic_priority"] = _build_basic_priority_mask(with_key)
 
     country = with_key[country_col].fillna("").astype(str).str.upper().str.strip()
-    country = country.mask(with_key["_is_basic_priority"], "BASIC")
     with_key["_country_norm"] = country
     has_country = country.ne("")
 

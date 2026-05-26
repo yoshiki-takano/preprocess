@@ -2026,7 +2026,7 @@ def test_jp_us_basic_priority_order_in_family_mode() -> None:
     assert selected.iloc[0]["country_code"] == "JP"
 
 
-def test_basic_can_join_tie_group_and_output_multiple_countries_in_family_mode() -> None:
+def test_basic_does_not_override_ranked_country_when_listed_country_exists() -> None:
     df = pd.DataFrame(
         [
             {
@@ -2078,12 +2078,59 @@ def test_basic_can_join_tie_group_and_output_multiple_countries_in_family_mode()
         mode="family",
         priority_basis="publication",
         date_policy="latest",
-        country_priority=["JP", "BASIC=EP", "WO", "CN"],
+        country_priority=["JP", "US", "WO", "CN", "EP", "KR"],
     )
     selected, _ = run_selection_pipeline(df, cfg)
 
-    assert len(selected) == 2
-    assert set(selected["country_code"].tolist()) == {"US", "EP"}
+    assert len(selected) == 1
+    assert selected.iloc[0]["country_code"] == "US"
+
+
+def test_family_registration_latest_prefers_us_over_ep_even_when_us_is_basic_row() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "US16814179A",
+                "application_date": pd.Timestamp("2020-03-10"),
+                "publication_number": "US20210288100A1",
+                "registration_number": "US11251219B2",
+                "publication_date": pd.Timestamp("2022-02-15"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "B2",
+                "accession_number": "2021A6683Y",
+                "family_id": "2021A6683Y",
+                "country_code": "US",
+                "dwpi_family_members": "US20210288100A1 | EP3879573A1 | EP3879573B1",
+            },
+            {
+                "application_number": "EP2021161779A",
+                "application_date": pd.Timestamp("2021-03-10"),
+                "publication_number": "EP3879573A1",
+                "registration_number": "EP3879573B1",
+                "publication_date": pd.Timestamp("2022-12-21"),
+                "registration_date": pd.NaT,
+                "legal_status": "Indeterminate",
+                "kind": "B1",
+                "accession_number": "2021A6683Y",
+                "family_id": "2021A6683Y",
+                "country_code": "EP",
+                "dwpi_family_members": "US20210288100A1 | EP3879573A1 | EP3879573B1",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP", "US", "WO", "CN", "EP", "KR"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["country_code"] == "US"
+    assert selected.iloc[0]["selected_patent_number"] == "US11251219B2"
 
 
 def test_basic_is_used_as_last_resort_even_when_not_listed_in_country_priority() -> None:
