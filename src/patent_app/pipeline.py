@@ -89,6 +89,7 @@ SELECTED_HELPER_DROP_COLUMNS = [
     "_group_key",
     "family_id",
     "registration_date",
+    "_country_priority_code",
     "_is_utility",
     "_has_primary",
     "_rank_date",
@@ -297,8 +298,19 @@ def _build_representative_progress(idx: int, total_groups: int) -> int | None:
 
 
 def _group_for_mode(df: pd.DataFrame, mode: str) -> pd.DataFrame:
-    group_column = "family_id" if mode == "family" else "application_number"
-    return _assign_group_key(df, group_column)
+    if mode == "family":
+        out = df.copy()
+        family_key = _build_effective_family_key(out).fillna("").astype(str).str.strip()
+        family_key = family_key.mask(family_key == "", out.index.astype(str))
+
+        country_col = "_country_priority_code" if "_country_priority_code" in out.columns else "country_code"
+        country_key = out[country_col].fillna("").astype(str).str.upper().str.strip()
+
+        composite_key = family_key + "||" + country_key
+        out["_group_key"] = composite_key.mask(country_key == "", family_key)
+        return out
+
+    return _assign_group_key(df, "application_number")
 
 
 def _finalize_pipeline_outputs(
@@ -852,7 +864,7 @@ def _apply_one_family_one_country(df: pd.DataFrame, country_priority: list[str])
     keep_all_when_no_country = ~family_has_any_country
 
     out = with_key[keep_priority | keep_alpha | keep_all_when_no_country].copy()
-    return out.drop(columns=["_family_key", "_country_norm", "_country_priority_code"], errors="ignore")
+    return out.drop(columns=["_family_key", "_country_norm"], errors="ignore")
 
 
 def _build_country_priority_rank(country_priority: list[str]) -> dict[str, int]:

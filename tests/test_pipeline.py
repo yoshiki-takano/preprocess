@@ -1730,3 +1730,117 @@ def test_country_priority_duplicate_uses_first_occurrence() -> None:
 
     assert len(selected) == 1
     assert selected.iloc[0]["country_code"] == "JP"
+
+
+def test_family_mode_outputs_multiple_rows_for_same_rank_country_group() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_US",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "US20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ_FAM",
+                "family_id": "F_EQ_FAM",
+                "country_code": "US",
+            },
+            {
+                "application_number": "APP_EP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "EP20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ_FAM",
+                "family_id": "F_EQ_FAM",
+                "country_code": "EP",
+            },
+            {
+                "application_number": "APP_CN",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "CN20240001A",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A",
+                "accession_number": "ACC_EQ_FAM",
+                "family_id": "F_EQ_FAM",
+                "country_code": "CN",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US=EP", "WO", "CN", "KR"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 2
+    assert set(selected["country_code"].tolist()) == {"US", "EP"}
+
+
+def test_family_mode_equal_group_still_collapses_same_country_to_one_row() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_US_1",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "US20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ_FAM_US",
+                "family_id": "F_EQ_FAM_US",
+                "country_code": "US",
+            },
+            {
+                "application_number": "APP_US_2",
+                "application_date": pd.Timestamp("2024-01-02"),
+                "publication_number": "US20240002A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-10"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ_FAM_US",
+                "family_id": "F_EQ_FAM_US",
+                "country_code": "US",
+            },
+            {
+                "application_number": "APP_EP_1",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "EP20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_EQ_FAM_US",
+                "family_id": "F_EQ_FAM_US",
+                "country_code": "EP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US=EP", "WO", "CN", "KR"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 2
+    assert set(selected["country_code"].tolist()) == {"US", "EP"}
