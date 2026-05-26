@@ -16,6 +16,7 @@ class SelectionConfig:
     priority_basis: PriorityBasis
     date_policy: DatePolicy
     country_priority: list[str]
+    use_basic_selection: bool = False
     treat_wo_republication_as_jp: bool = False
     treat_wo_prior_republication_as_jp: bool = False
     exclude_invalid: bool = False

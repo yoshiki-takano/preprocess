@@ -145,12 +145,16 @@ def run_selection_pipeline(
     context = _prepare_selection_context(working, selectable, selectable_index)
 
     _notify_progress(progress_callback, PROGRESS_COUNTRY_NARROW, MSG_COUNTRY_NARROW)
-    narrowed = _build_ranked_narrowed_candidates(context, config)
-
-    grouped = _group_for_mode(narrowed, config.mode)
-
-    _notify_progress(progress_callback, PROGRESS_SELECT_REPRESENTATIVE_START, MSG_SELECT_REPRESENTATIVE)
-    selected_rows = _collect_selected_rows(grouped, config, progress_callback)
+    if config.use_basic_selection:
+        narrowed = _build_basic_mode_narrowed_candidates(context)
+        grouped = _group_for_basic_mode(narrowed)
+        _notify_progress(progress_callback, PROGRESS_SELECT_REPRESENTATIVE_START, MSG_SELECT_REPRESENTATIVE)
+        selected_rows = _collect_selected_rows_basic(grouped, progress_callback)
+    else:
+        narrowed = _build_ranked_narrowed_candidates(context, config)
+        grouped = _group_for_mode(narrowed, config.mode)
+        _notify_progress(progress_callback, PROGRESS_SELECT_REPRESENTATIVE_START, MSG_SELECT_REPRESENTATIVE)
+        selected_rows = _collect_selected_rows(grouped, config, progress_callback)
 
     if not selected_rows:
         _notify_progress(progress_callback, PROGRESS_FORMAT_OUTPUT, MSG_FORMAT_OUTPUT)
@@ -266,6 +270,46 @@ def _build_ranked_narrowed_candidates(context: _SelectionContext, config: Select
     )
 
 
+def _build_basic_mode_narrowed_candidates(context: _SelectionContext) -> pd.DataFrame:
+    return _apply_basic_only_family_selection(context.paired)
+
+
+def _apply_basic_only_family_selection(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    with_key = df.copy()
+    family_key = _build_effective_family_key(with_key)
+    with_key["_family_key"] = family_key
+    missing_mask = with_key["_family_key"].isna()
+    with_key.loc[missing_mask, "_family_key"] = with_key.index.astype(str)[missing_mask]
+
+    with_key["_is_basic_priority"] = _build_basic_priority_mask(with_key)
+    publication = with_key["publication_number"].map(_normalize_publication_number)
+    has_publication = publication.ne("")
+
+    family_has_basic = with_key["_is_basic_priority"].groupby(with_key["_family_key"], dropna=False).transform("any")
+    family_has_publication = has_publication.groupby(with_key["_family_key"], dropna=False).transform("any")
+    family_publication_min = publication.where(has_publication).groupby(with_key["_family_key"], dropna=False).transform("min")
+
+    keep_basic = family_has_basic & with_key["_is_basic_priority"]
+    keep_publication_fallback = (~family_has_basic) & has_publication & publication.eq(family_publication_min)
+    keep_all_when_no_publication = (~family_has_basic) & (~family_has_publication)
+
+    out = with_key[keep_basic | keep_publication_fallback | keep_all_when_no_publication].copy()
+    return out.drop(columns=["_family_key"], errors="ignore")
+
+
+def _group_for_basic_mode(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    out = df.copy()
+    family_key = _build_effective_family_key(out).fillna("").astype(str).str.strip()
+    out["_group_key"] = family_key.mask(family_key == "", out.index.astype(str))
+    return out
+
+
 def _collect_selected_rows(
     grouped: pd.DataFrame,
     config: SelectionConfig,
@@ -282,6 +326,42 @@ def _collect_selected_rows(
             _notify_progress(progress_callback, progress, f"{MSG_SELECT_REPRESENTATIVE} ({idx}/{total_groups})")
 
     return selected_rows
+
+
+def _collect_selected_rows_basic(
+    grouped: pd.DataFrame,
+    progress_callback: ProgressCallback | None,
+) -> list[pd.Series]:
+    selected_rows: list[pd.Series] = []
+    grouped_items = list(grouped.groupby("_group_key", dropna=False))
+    total_groups = len(grouped_items)
+
+    for idx, (_, group) in enumerate(grouped_items, start=1):
+        selected_rows.append(_select_representative_basic(group))
+        progress = _build_representative_progress(idx, total_groups)
+        if progress is not None:
+            _notify_progress(progress_callback, progress, f"{MSG_SELECT_REPRESENTATIVE} ({idx}/{total_groups})")
+
+    return selected_rows
+
+
+def _select_representative_basic(group: pd.DataFrame) -> pd.Series:
+    ranked = group.copy()
+    publication = ranked["publication_number"].fillna("").astype(str).str.strip()
+    ranked["_has_primary"] = publication.ne("").astype(int)
+
+    ranked["_rank_publication_date"] = pd.to_datetime(ranked["publication_date"], errors="coerce")
+    ranked["_rank_application_date"] = pd.to_datetime(ranked["application_date"], errors="coerce")
+
+    ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
+    ranked = _filter_min_revision(ranked, "_pub_base", "_pub_revision")
+
+    ranked = ranked.sort_values(
+        by=["_has_primary", "_pub_base", "_pub_revision", "_rank_publication_date", "_rank_application_date"],
+        ascending=[False, True, True, True, True],
+        na_position="last",
+    )
+    return ranked.iloc[0]
 
 
 def _build_representative_progress(idx: int, total_groups: int) -> int | None:
@@ -349,13 +429,18 @@ def _build_final_selected_dataframe(
     patent_date_lookup: dict[str, object],
 ) -> pd.DataFrame:
     selected = pd.DataFrame(selected_rows).drop(columns=SELECTED_HELPER_DROP_COLUMNS, errors="ignore")
-    selected["selected_patent_number"] = _resolve_selected_patent_number_series(
-        selected,
-        priority_basis=config.priority_basis,
-        exclude_invalid=selected_number_options.exclude_invalid,
-        status_lookup=selected_number_options.status_lookup,
-        date_allowed_patent_numbers=selected_number_options.date_allowed_patent_numbers,
-    )
+    if config.use_basic_selection:
+        pub_no = selected["publication_number"].fillna("").astype(str).str.strip()
+        reg_no = selected["registration_number"].fillna("").astype(str).str.strip()
+        selected["selected_patent_number"] = pub_no.mask(pub_no.eq(""), reg_no)
+    else:
+        selected["selected_patent_number"] = _resolve_selected_patent_number_series(
+            selected,
+            priority_basis=config.priority_basis,
+            exclude_invalid=selected_number_options.exclude_invalid,
+            status_lookup=selected_number_options.status_lookup,
+            date_allowed_patent_numbers=selected_number_options.date_allowed_patent_numbers,
+        )
     selected = _resolve_application_date_from_selected_patent(selected, patent_application_date_lookup)
     selected = _resolve_publication_date_from_selected_patent(selected, patent_date_lookup)
     selected_no = selected["selected_patent_number"].fillna("").astype(str).str.strip()

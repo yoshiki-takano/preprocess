@@ -2237,3 +2237,99 @@ def test_when_basic_unavailable_falls_back_to_publication_number_selection() -> 
 
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "CN108140599A"
+
+
+def test_basic_mode_forces_publication_number_even_if_registration_priority_selected() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_US",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "US20210288100A1",
+                "registration_number": "US11251219B2",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.Timestamp("2025-01-10"),
+                "legal_status": "active",
+                "kind": "B2",
+                "accession_number": "ACC_BASIC_MODE_1",
+                "family_id": "F_BASIC_MODE_1",
+                "country_code": "US",
+                "dwpi_family_members": "US20210288100A1 | EP3879573A1",
+            },
+            {
+                "application_number": "APP_EP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "EP3879573A1",
+                "registration_number": "EP3879573B1",
+                "publication_date": pd.Timestamp("2024-02-02"),
+                "registration_date": pd.Timestamp("2025-01-20"),
+                "legal_status": "active",
+                "kind": "B1",
+                "accession_number": "ACC_BASIC_MODE_1",
+                "family_id": "F_BASIC_MODE_1",
+                "country_code": "EP",
+                "dwpi_family_members": "US20210288100A1 | EP3879573A1",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["EP", "US"],
+        use_basic_selection=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "US20210288100A1"
+    assert selected.iloc[0]["selected_patent_number"] == "US20210288100A1"
+
+
+def test_basic_mode_uses_publication_fallback_when_dwpi_members_are_empty() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_EP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "EP3314640A1",
+                "registration_number": "EP3314640B1",
+                "publication_date": pd.Timestamp("2024-02-02"),
+                "registration_date": pd.Timestamp("2025-01-10"),
+                "legal_status": "active",
+                "kind": "B1",
+                "accession_number": "ACC_BASIC_MODE_2",
+                "family_id": "F_BASIC_MODE_2",
+                "country_code": "EP",
+                "dwpi_family_members": "",
+            },
+            {
+                "application_number": "APP_CN",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "CN108140599A",
+                "registration_number": "CN108140599B",
+                "publication_date": pd.Timestamp("2024-02-03"),
+                "registration_date": pd.Timestamp("2025-01-11"),
+                "legal_status": "active",
+                "kind": "B",
+                "accession_number": "ACC_BASIC_MODE_2",
+                "family_id": "F_BASIC_MODE_2",
+                "country_code": "CN",
+                "dwpi_family_members": "",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP", "US"],
+        use_basic_selection=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "CN108140599A"
+    assert selected.iloc[0]["selected_patent_number"] == "CN108140599A"

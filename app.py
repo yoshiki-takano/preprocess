@@ -73,7 +73,14 @@ with st.expander("終了日条件の設定", expanded=enable_end_date):
 st.subheader("選択条件")
 treat_wo_republication_as_jp = st.checkbox("再公表(元WO)をJPとして扱う", value=True)
 treat_wo_prior_republication_as_jp = st.checkbox("先行再公表(WO)をJPとして扱う", value=True)
-country_priority_raw = st.text_input("国優先順位 (カンマ区切り)", value="JP,US,EP,WO,CN,KR")
+use_basic_selection = st.checkbox("Basicを選択（DWPIファミリー先頭メンバー）", value=False)
+country_priority_raw = st.text_input(
+    "国優先順位 (カンマ区切り)",
+    value="JP,US,EP,WO,CN,KR",
+    disabled=use_basic_selection,
+)
+if use_basic_selection:
+    st.caption("Basic選択時はファミリ単位でBasicを選択し、優先ロジック/日付方針/国優先順位は無効になります。")
 
 
 def _sync_date_policy_from_priority_basis() -> None:
@@ -211,6 +218,16 @@ def _build_uploaded_files_key(files) -> tuple[tuple[str, int], ...] | None:
     return tuple(sorted((f.name, f.size) for f in files))
 
 
+def _remove_basic_from_country_priority(groups: list[str]) -> list[str]:
+    out: list[str] = []
+    for group in groups:
+        parts = [part.strip().upper() for part in str(group).split("=") if part.strip()]
+        filtered = [part for part in parts if part != "BASIC"]
+        if filtered:
+            out.append("=".join(filtered))
+    return out
+
+
 @st.cache_data(show_spinner=False)
 def _load_and_canonicalize_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
     raw_file_df = load_dataframe(file_name, file_bytes)
@@ -230,19 +247,26 @@ def _build_preview_dataframe(file_payloads: tuple[tuple[str, bytes], ...]) -> pd
 
 
 col1, col2, col3 = st.columns(3)
-mode = col1.selectbox("処理単位", ["family", "application"], format_func=lambda x: "ファミリ単位" if x == "family" else "出願単位")
+mode = col1.selectbox(
+    "処理単位",
+    ["family", "application"],
+    format_func=lambda x: "ファミリ単位" if x == "family" else "出願単位",
+    disabled=use_basic_selection,
+)
 priority_basis = col2.selectbox(
     "優先ロジック",
     ["registration", "publication"],
     format_func=lambda x: "登録優先" if x == "registration" else "公開優先",
     key="priority_basis",
     on_change=_sync_date_policy_from_priority_basis,
+    disabled=use_basic_selection,
 )
 date_policy = col3.selectbox(
     "日付方針",
     ["latest", "earliest"],
     format_func=lambda x: "最新" if x == "latest" else "最先",
     key="date_policy",
+    disabled=use_basic_selection,
 )
 
 if uploaded_files:
@@ -285,11 +309,14 @@ if uploaded_files:
             canonical_df = preview_df.copy()
 
             progress.progress(24, text="抽出条件を準備しています...")
+            parsed_country_priority = _remove_basic_from_country_priority(parse_country_priority(country_priority_raw))
+            effective_mode = "family" if use_basic_selection else mode
             cfg = SelectionConfig(
-                mode=mode,
+                mode=effective_mode,
                 priority_basis=priority_basis,
                 date_policy=date_policy,
-                country_priority=parse_country_priority(country_priority_raw),
+                country_priority=parsed_country_priority,
+                use_basic_selection=use_basic_selection,
                 treat_wo_republication_as_jp=treat_wo_republication_as_jp,
                 treat_wo_prior_republication_as_jp=treat_wo_prior_republication_as_jp,
                 exclude_invalid=exclude_invalid,
