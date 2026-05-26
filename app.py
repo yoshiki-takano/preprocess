@@ -73,11 +73,14 @@ with st.expander("終了日条件の設定", expanded=enable_end_date):
 st.subheader("選択条件")
 treat_wo_republication_as_jp = st.checkbox("再公表(元WO)をJPとして扱う", value=True)
 treat_wo_prior_republication_as_jp = st.checkbox("先行再公表(WO)をJPとして扱う", value=True)
-use_basic_selection = st.checkbox("Basicを選択（DWPIファミリー先頭メンバー）", value=False)
 country_priority_raw = st.text_input(
     "国優先順位 (カンマ区切り)",
     value="JP,US,EP,WO,CN,KR",
-    disabled=use_basic_selection,
+    disabled=st.session_state.get("use_basic_selection", False),
+)
+use_basic_selection = st.checkbox(
+    "Basicを選択（DWPIファミリー先頭メンバー）",
+    key="use_basic_selection",
 )
 if use_basic_selection:
     st.caption("Basic選択時はファミリ単位でBasicを選択し、優先ロジック/日付方針/国優先順位は無効になります。")
@@ -210,6 +213,8 @@ if "preview_family_count" not in st.session_state:
     st.session_state["preview_family_count"] = None
 if "preview_no_acc_count" not in st.session_state:
     st.session_state["preview_no_acc_count"] = None
+if "use_basic_selection" not in st.session_state:
+    st.session_state["use_basic_selection"] = False
 
 
 def _build_uploaded_files_key(files) -> tuple[tuple[str, int], ...] | None:
