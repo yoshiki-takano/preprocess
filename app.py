@@ -197,12 +197,36 @@ if "result_error" not in st.session_state:
     st.session_state["result_error"] = None
 if "uploaded_files_key" not in st.session_state:
     st.session_state["uploaded_files_key"] = None
+if "preview_df" not in st.session_state:
+    st.session_state["preview_df"] = None
+if "preview_family_count" not in st.session_state:
+    st.session_state["preview_family_count"] = None
+if "preview_no_acc_count" not in st.session_state:
+    st.session_state["preview_no_acc_count"] = None
 
 
 def _build_uploaded_files_key(files) -> tuple[tuple[str, int], ...] | None:
     if not files:
         return None
     return tuple(sorted((f.name, f.size) for f in files))
+
+
+@st.cache_data(show_spinner=False)
+def _load_and_canonicalize_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
+    raw_file_df = load_dataframe(file_name, file_bytes)
+    file_columns = list(raw_file_df.columns)
+    mapping = resolve_column_mapping(file_columns)
+    canonical_file_df = canonicalize_dataframe(raw_file_df, mapping)
+    canonical_file_df["source_file"] = file_name
+    return canonical_file_df
+
+
+@st.cache_data(show_spinner=False)
+def _build_preview_dataframe(file_payloads: tuple[tuple[str, bytes], ...]) -> pd.DataFrame:
+    canonical_preview_dfs = [_load_and_canonicalize_file(name, content) for name, content in file_payloads]
+    if not canonical_preview_dfs:
+        return pd.DataFrame()
+    return pd.concat(canonical_preview_dfs, ignore_index=True)
 
 
 col1, col2, col3 = st.columns(3)
@@ -228,18 +252,21 @@ if uploaded_files:
         st.session_state["selected_df"] = None
         st.session_state["output_bytes"] = None
         st.session_state["result_error"] = None
+        file_payloads = tuple((uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in uploaded_files)
+        preview_df = _build_preview_dataframe(file_payloads)
+        raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(preview_df)
+        st.session_state["preview_df"] = preview_df
+        st.session_state["preview_family_count"] = raw_family_count
+        st.session_state["preview_no_acc_count"] = raw_no_acc_count
 
-    canonical_preview_dfs: list[pd.DataFrame] = []
-    for uploaded_file in uploaded_files:
-        raw_file_df = load_dataframe(uploaded_file.name, uploaded_file.getvalue())
-        file_columns = list(raw_file_df.columns)
-        mapping = resolve_column_mapping(file_columns)
-        canonical_file_df = canonicalize_dataframe(raw_file_df, mapping)
-        canonical_file_df["source_file"] = uploaded_file.name
-        canonical_preview_dfs.append(canonical_file_df)
+    preview_df = st.session_state["preview_df"]
+    raw_family_count = st.session_state["preview_family_count"]
+    raw_no_acc_count = st.session_state["preview_no_acc_count"]
 
-    preview_df = pd.concat(canonical_preview_dfs, ignore_index=True)
-    raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(preview_df)
+    if preview_df is None:
+        st.warning("入力データの読み込みに失敗しました。ファイルを再選択してください。")
+        st.stop()
+
     _render_paginated_dataframe(
         preview_df,
         "入力プレビュー",
