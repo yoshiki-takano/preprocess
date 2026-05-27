@@ -187,10 +187,13 @@ def _apply_exclusions(
         return df.copy()
 
     status_series = df["legal_status"].fillna("").str.lower()
-    kind_series = df["kind"].fillna("").str.lower()
 
     status_mask = ~status_series.apply(_contains_exclude_status) if exclude_invalid else pd.Series(True, index=df.index)
-    kind_mask = ~kind_series.apply(_contains_exclude_kind) if exclude_utility else pd.Series(True, index=df.index)
+    if exclude_utility:
+        puab = _resolve_puab_for_numbers(df["publication_number"], df["registration_number"])
+        kind_mask = ~puab.isin({"UA", "UB"})
+    else:
+        kind_mask = pd.Series(True, index=df.index)
     date_mask = _build_date_range_mask(df, start_date_field, start_date, end_date_field, end_date)
 
     return df[status_mask & kind_mask & date_mask].copy()
@@ -287,17 +290,59 @@ def _apply_basic_only_family_selection(df: pd.DataFrame) -> pd.DataFrame:
     with_key["_is_basic_priority"] = _build_basic_priority_mask(with_key)
     publication = with_key["publication_number"].map(_normalize_publication_number)
     has_publication = publication.ne("")
+    dwpi_member_rank = _build_dwpi_member_rank_series(with_key, publication)
 
     family_has_basic = with_key["_is_basic_priority"].groupby(with_key["_family_key"], dropna=False).transform("any")
     family_has_publication = has_publication.groupby(with_key["_family_key"], dropna=False).transform("any")
+    family_has_dwpi_rank = dwpi_member_rank.notna().groupby(with_key["_family_key"], dropna=False).transform("any")
+    family_dwpi_min_rank = dwpi_member_rank.groupby(with_key["_family_key"], dropna=False).transform("min")
     family_publication_min = publication.where(has_publication).groupby(with_key["_family_key"], dropna=False).transform("min")
 
     keep_basic = family_has_basic & with_key["_is_basic_priority"]
-    keep_publication_fallback = (~family_has_basic) & has_publication & publication.eq(family_publication_min)
+    keep_dwpi_fallback = (~family_has_basic) & has_publication & dwpi_member_rank.notna() & dwpi_member_rank.eq(
+        family_dwpi_min_rank
+    )
+    keep_publication_fallback = (
+        (~family_has_basic) & has_publication & (~family_has_dwpi_rank) & publication.eq(family_publication_min)
+    )
     keep_all_when_no_publication = (~family_has_basic) & (~family_has_publication)
 
-    out = with_key[keep_basic | keep_publication_fallback | keep_all_when_no_publication].copy()
+    out = with_key[keep_basic | keep_dwpi_fallback | keep_publication_fallback | keep_all_when_no_publication].copy()
     return out.drop(columns=["_family_key"], errors="ignore")
+
+
+def _build_dwpi_member_rank_series(df: pd.DataFrame, publication: pd.Series) -> pd.Series:
+    if "dwpi_family_members" not in df.columns:
+        return pd.Series(pd.NA, index=df.index, dtype="Int64")
+
+    members = df["dwpi_family_members"].fillna("").astype(str)
+    return pd.Series(
+        [_lookup_dwpi_member_rank(member_text, pub_no) for member_text, pub_no in zip(members, publication)],
+        index=df.index,
+        dtype="Int64",
+    )
+
+
+@lru_cache(maxsize=200_000)
+def _lookup_dwpi_member_rank(member_text: str, publication_number: str):
+    pub_no = _normalize_publication_number(publication_number)
+    if pub_no == "":
+        return pd.NA
+
+    ordered_members = _parse_dwpi_family_members(member_text)
+    if pub_no not in ordered_members:
+        return pd.NA
+    return ordered_members[pub_no]
+
+
+@lru_cache(maxsize=200_000)
+def _parse_dwpi_family_members(value: str) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for idx, part in enumerate(str(value or "").split("|")):
+        token = _normalize_publication_number(part)
+        if token and token not in out:
+            out[token] = idx
+    return out
 
 
 def _group_for_basic_mode(df: pd.DataFrame) -> pd.DataFrame:

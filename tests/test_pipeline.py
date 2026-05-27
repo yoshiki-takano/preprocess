@@ -57,7 +57,7 @@ def _df() -> pd.DataFrame:
             {
                 "application_number": "A4",
                 "application_date": pd.Timestamp("2024-03-10"),
-                "publication_number": "CN20240004",
+                "publication_number": "CN20240004U",
                 "registration_number": "",
                 "publication_date": pd.Timestamp("2024-04-01"),
                 "registration_date": pd.NaT,

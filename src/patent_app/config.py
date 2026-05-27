@@ -51,6 +51,6 @@ CANONICAL_COLUMNS = {
     "source_file": ["source_file", "ソースファイル"],
 }
 
-EXCLUDE_STATUS_TOKENS = {"失効", "無効", "expired", "invalid", "dead"}
+EXCLUDE_STATUS_TOKENS = {"dead", "失効", "無効"}
 EXCLUDE_KIND_TOKENS = {"実案", "utility"}
 NO_ACC_TOKENS = {"", "-", "null", "none", "nan"}
