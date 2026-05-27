@@ -1966,6 +1966,81 @@ def test_basic_priority_falls_back_to_next_country_when_basic_member_row_missing
     assert selected.iloc[0]["publication_number"] == "WO2016210366A1"
 
 
+def test_basic_priority_uses_next_dwpi_member_when_first_member_is_excluded() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_US",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "US20160375671A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "Dead",
+                "kind": "A1",
+                "accession_number": "ACC_BASIC_EXCL_1",
+                "family_id": "F_BASIC_EXCL_1",
+                "country_code": "US",
+                "dwpi_family_members": "US20160375671A1 | JP2021114643A | WO2016210366A1 | CN108140599A",
+            },
+            {
+                "application_number": "APP_JP",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "JP2021114643A",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-02"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "A",
+                "accession_number": "ACC_BASIC_EXCL_1",
+                "family_id": "F_BASIC_EXCL_1",
+                "country_code": "JP",
+                "dwpi_family_members": "US20160375671A1 | JP2021114643A | WO2016210366A1 | CN108140599A",
+            },
+            {
+                "application_number": "APP_WO",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "WO2016210366A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-03"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "A1",
+                "accession_number": "ACC_BASIC_EXCL_1",
+                "family_id": "F_BASIC_EXCL_1",
+                "country_code": "WO",
+                "dwpi_family_members": "US20160375671A1 | JP2021114643A | WO2016210366A1 | CN108140599A",
+            },
+            {
+                "application_number": "APP_CN",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "CN108140599A",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-04"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "A",
+                "accession_number": "ACC_BASIC_EXCL_1",
+                "family_id": "F_BASIC_EXCL_1",
+                "country_code": "CN",
+                "dwpi_family_members": "US20160375671A1 | JP2021114643A | WO2016210366A1 | CN108140599A",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "KR"],
+        exclude_invalid=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "JP2021114643A"
+
+
 def test_jp_us_basic_priority_order_in_family_mode() -> None:
     df = pd.DataFrame(
         [
