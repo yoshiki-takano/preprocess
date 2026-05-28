@@ -52,6 +52,21 @@ def test_country_code_is_generated_from_publication_number() -> None:
     assert out.iloc[0]["country_code"] == "EP"
 
 
+def test_canonicalize_dataframe_keeps_non_canonical_columns() -> None:
+    source = pd.DataFrame(
+        {
+            "公報番号": ["JP20240001A1"],
+            "明細 (英語)": ["Detailed specification"],
+        }
+    )
+
+    mapping = resolve_column_mapping(list(source.columns))
+    out = canonicalize_dataframe(source, mapping)
+
+    assert "明細 (英語)" in out.columns
+    assert out.iloc[0]["明細 (英語)"] == "Detailed specification"
+
+
 def test_publication_date_is_mapped_from_koho_hakkobi() -> None:
     source = pd.DataFrame(
         {
@@ -192,17 +207,27 @@ def test_template_export_uses_screener_column_schema() -> None:
             {
                 "selected_patent_number": "JP20240001A1",
                 "publication_number": "JP20240001A1",
-                "registration_number": "",
+                "registration_number": "JP7654321B2",
                 "publication_date": pd.Timestamp("2024-02-01"),
                 "application_number": "JP20230001",
                 "application_date": pd.Timestamp("2023-01-15"),
+                "priority_number": "PRIO-1",
+                "priority_date": pd.Timestamp("2022-12-01"),
                 "優先権情報": "PRIO-1(2022-12-01)",
                 "DWPI ファミリーメンバー": "JP20240001A1|US20240001A1",
+                "dwpi_family_members_status": "JP20240001A1 Alive|US20240001A1 Dead",
                 "accession_number": "ACC-001",
                 "language_of_publication": "JA",
                 "title_english": "Sample title",
                 "title_dwpi": "DWPI title",
                 "assignee_applicant": "Applicant A",
+                "assignee_dwpi": "DWPI Applicant",
+                "assignee_standardized": "Standardized Applicant",
+                "五庁有効ファミリ": "JP20240001A1",
+                "五庁失効ファミリ": "US20240001A1",
+                "その他ファミリ": "WO2024000001A1",
+                "legal_status": "Alive",
+                "country_code": "JP",
                 "source_file": "sample.xlsx",
             }
         ]
@@ -223,24 +248,36 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert headers == TEMPLATE_OUTPUT_COLUMNS
 
     values = [cell.value for cell in result_ws[2]]
-    assert values[0] == 1
-    assert values[1] is None
-    assert values[4] == "JP20240001A1"
-    assert values[11] == "JP20240001A1"
-    assert values[14] == "JA"
-    assert values[15] == "Sample title"
-    assert values[16] == "DWPI title"
-    assert values[17] == "Applicant A"
-    assert values[28] == "ACC-001"
-    assert values[29].date() == date(2024, 2, 1)
-    assert values[30] == "JP20230001"
-    assert values[31].date() == date(2023, 1, 15)
-    assert values[32] == "PRIO-1(2022-12-01)"
-    assert values[33] == "JP20240001A1|US20240001A1"
-    assert values[36] == "sample.xlsx"
-    assert values[2] is None
-    assert values[12] is None
-    assert values[18] is None
+    row = dict(zip(headers, values))
+    assert row["NUID"] == 1
+    assert row["DATE"] is None
+    assert row["NUMBER"] == "JP20240001A1"
+    assert row["公報番号"] == "JP20240001A1"
+    assert row["公報言語"] == "JA"
+    assert row["タイトル (英語)"] == "Sample title"
+    assert row["タイトル - DWPI"] == "DWPI title"
+    assert row["譲受人/出願人"] == "Applicant A"
+    assert row["譲受人 - DWPI"] == "DWPI Applicant"
+    assert row["譲受人 - 標準化"] == "Standardized Applicant"
+    assert row["DWPI アクセッション番号"] == "ACC-001"
+    assert row["公報発行日"].date() == date(2024, 2, 1)
+    assert row["出願番号"] == "JP20230001"
+    assert row["出願日"].date() == date(2023, 1, 15)
+    assert row["優先権主張番号"] == "PRIO-1"
+    assert row["優先権主張日"].date() == date(2022, 12, 1)
+    assert row["優先権情報"] == "PRIO-1(2022-12-01)"
+    assert row["DWPI ファミリーメンバー"] == "JP20240001A1|US20240001A1"
+    assert row["DWPI ファミリーメンバー 有効/無効"] == "JP20240001A1 Alive|US20240001A1 Dead"
+    assert row["FileName"] == "sample.xlsx"
+    assert row["公開番号"] == "JP20240001A1"
+    assert row["登録番号"] == "JP7654321B2"
+    assert row["五庁有効ファミリ"] == "JP20240001A1"
+    assert row["五庁失効ファミリ"] == "US20240001A1"
+    assert row["その他ファミリ"] == "WO2024000001A1"
+    assert row["無効/有効"] == "Alive"
+    assert row["国名コード"] == "JP"
+    assert row["PDF コピー"] is None
+    assert row["IPC - 最新"] is None
 
 
 def test_template_export_falls_back_to_applicant_rights_column() -> None:
@@ -269,5 +306,65 @@ def test_template_export_falls_back_to_applicant_rights_column() -> None:
     result_wb = load_workbook(io.BytesIO(output_bytes))
     result_ws = result_wb["SearchData"]
 
+    headers = [cell.value for cell in result_ws[1]]
     values = [cell.value for cell in result_ws[2]]
-    assert values[17] == "Applicant From Pipeline"
+    row = dict(zip(headers, values))
+    assert row["譲受人/出願人"] == "Applicant From Pipeline"
+
+
+def test_template_export_appends_passthrough_columns_after_fixed_schema() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "source_file": "sample.xlsx",
+                "明細 (英語)": "Detailed specification",
+                "Custom Score": "A+",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    assert headers[: len(TEMPLATE_OUTPUT_COLUMNS)] == TEMPLATE_OUTPUT_COLUMNS
+    assert headers[-2:] == ["明細 (英語)", "Custom Score"]
+
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["明細 (英語)"] == "Detailed specification"
+    assert row["Custom Score"] == "A+"
+
+
+def test_non_template_export_keeps_passthrough_columns() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "country_code": "JP",
+                "明細 (英語)": "Detailed specification",
+            }
+        ]
+    )
+
+    output_bytes = build_xlsx_bytes(selected)
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    assert "明細 (英語)" in headers
+
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["明細 (英語)"] == "Detailed specification"

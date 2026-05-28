@@ -82,6 +82,7 @@ def canonicalize_dataframe(
     mapping: dict[str, str],
 ) -> pd.DataFrame:
     out = pd.DataFrame(index=df.index)
+    mapped_source_columns = {source for source in mapping.values() if source in df.columns}
 
     for canonical in CANONICAL_COLUMNS:
         source = mapping.get(canonical)
@@ -121,6 +122,10 @@ def canonicalize_dataframe(
     # legal_status は元の表記（Dead/Alive/Indeterminate 等）を保持するためバイナリ変換しない
     out["kind"] = out.apply(_derive_kind_code, axis=1)
     out = _normalize_kr_application_numbers(out)
+
+    passthrough_columns = [col for col in df.columns if col not in mapped_source_columns and col not in out.columns]
+    if passthrough_columns:
+        out = pd.concat([out, df[passthrough_columns].copy()], axis=1)
 
     return out
 

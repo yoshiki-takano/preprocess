@@ -43,6 +43,8 @@ TEMPLATE_OUTPUT_COLUMNS = [
     "タイトル (英語)",
     "タイトル - DWPI",
     "譲受人/出願人",
+    "譲受人 - DWPI",
+    "譲受人 - 標準化",
     "IPC - 最新",
     "US クラス",
     "CPC - 最新",
@@ -57,11 +59,23 @@ TEMPLATE_OUTPUT_COLUMNS = [
     "公報発行日",
     "出願番号",
     "出願日",
+    "優先権主張番号",
+    "優先権主張日",
     "優先権情報",
     "DWPI ファミリーメンバー",
+    "DWPI ファミリーメンバー 有効/無効",
     "INPADOC ファミリーメンバー",
     "独立請求項番号",
     "FileName",
+    "公開番号",
+    "登録番号",
+    "五庁有効ファミリ",
+    "五庁失効ファミリ",
+    "その他ファミリ",
+    "無効/有効",
+    "国名コード",
+    "単一効 (EP)",
+    "発明者",
 ]
 
 TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
@@ -71,13 +85,27 @@ TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "タイトル (英語)": "title_english",
     "タイトル - DWPI": "title_dwpi",
     "譲受人/出願人": ["assignee_applicant", "出願人/権利者"],
+    "譲受人 - DWPI": ["譲受人 - DWPI", "assignee_dwpi"],
+    "譲受人 - 標準化": ["譲受人 - 標準化", "assignee_standardized"],
     "DWPI アクセッション番号": "accession_number",
     "公報発行日": "publication_date",
     "出願番号": "application_number",
     "出願日": "application_date",
+    "優先権主張番号": "priority_number",
+    "優先権主張日": "priority_date",
     "優先権情報": ["優先権情報", "priority_number"],
     "DWPI ファミリーメンバー": ["DWPI ファミリーメンバー", "dwpi_family_members"],
+    "DWPI ファミリーメンバー 有効/無効": ["DWPI ファミリーメンバー 有効/無効", "dwpi_family_members_status"],
     "FileName": "source_file",
+    "公開番号": "publication_number",
+    "登録番号": "registration_number",
+    "五庁有効ファミリ": "五庁有効ファミリ",
+    "五庁失効ファミリ": "五庁失効ファミリ",
+    "その他ファミリ": "その他ファミリ",
+    "無効/有効": ["無効/有効", "legal_status"],
+    "国名コード": ["国名コード", "country_code"],
+    "単一効 (EP)": ["単一効 (EP)", "単一効(EP)"],
+    "発明者": ["発明者", "inventor", "inventors"],
 }
 
 TEMPLATE_BLANK_COLUMNS = {
@@ -151,6 +179,7 @@ def _write_dataframe(ws, df: pd.DataFrame) -> None:
 def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(index=selected_df.index)
     row_count = len(selected_df)
+    consumed_source_columns: set[str] = set()
 
     for column in TEMPLATE_OUTPUT_COLUMNS:
         source = TEMPLATE_OUTPUT_SOURCE_MAP.get(column)
@@ -163,14 +192,22 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
         if source_column is None:
             out[column] = [None] * row_count
             continue
+        consumed_source_columns.add(source_column)
 
         values = selected_df[source_column]
         if column == "NUMBER" or column == "公報番号":
             out[column] = values.fillna("").astype(str)
-        elif column in {"公報発行日", "出願日"}:
+        elif column in {"公報発行日", "出願日", "優先権主張日"}:
             out[column] = pd.to_datetime(values, errors="coerce").dt.date
         else:
             out[column] = values.map(_normalize_export_text)
+
+    for column in selected_df.columns:
+        if column in TEMPLATE_OUTPUT_COLUMNS:
+            continue
+        if column in consumed_source_columns:
+            continue
+        out[column] = selected_df[column].map(_normalize_export_text)
 
     out["NUID"] = range(1, row_count + 1)
     return out
