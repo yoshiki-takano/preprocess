@@ -312,6 +312,36 @@ def test_template_export_falls_back_to_applicant_rights_column() -> None:
     assert row["譲受人/出願人"] == "Applicant From Pipeline"
 
 
+def test_template_export_fills_title_columns_from_japanese_named_sources() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "タイトル（英語）": "Title From Pipeline",
+                "タイトル - DWPI": "DWPI From Pipeline",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["タイトル (英語)"] == "Title From Pipeline"
+    assert row["タイトル - DWPI"] == "DWPI From Pipeline"
+
+
 def test_template_export_appends_passthrough_columns_after_fixed_schema() -> None:
     selected = pd.DataFrame(
         [
