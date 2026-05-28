@@ -6,9 +6,11 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+from openpyxl import Workbook, load_workbook
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
+from patent_app.exporter import TEMPLATE_OUTPUT_COLUMNS, build_xlsx_bytes
 from patent_app.io_ops import canonicalize_dataframe, load_dataframe, resolve_column_mapping
 
 
@@ -182,3 +184,62 @@ def test_kr_registration_application_number_70_is_converted_to_07_before_1998() 
     out = canonicalize_dataframe(source, mapping)
 
     assert out.iloc[0]["application_number"] == "KR199507123456"
+
+
+def test_template_export_uses_screener_column_schema() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "application_number": "JP20230001",
+                "application_date": pd.Timestamp("2023-01-15"),
+                "priority_number": "PRIO-1",
+                "priority_date": pd.Timestamp("2022-12-01"),
+                "dwpi_family_members": "JP20240001A1|US20240001A1",
+                "accession_number": "ACC-001",
+                "language_of_publication": "JA",
+                "title_english": "Sample title",
+                "title_dwpi": "DWPI title",
+                "assignee_applicant": "Applicant A",
+                "source_file": "sample.xlsx",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    assert headers == TEMPLATE_OUTPUT_COLUMNS
+
+    values = [cell.value for cell in result_ws[2]]
+    assert values[0] == 1
+    assert values[1] is None
+    assert values[4] == "JP20240001A1"
+    assert values[11] == "JP20240001A1"
+    assert values[14] == "JA"
+    assert values[15] == "Sample title"
+    assert values[16] == "DWPI title"
+    assert values[17] == "Applicant A"
+    assert values[28] == "ACC-001"
+    assert values[29].date() == date(2024, 2, 1)
+    assert values[30] == "JP20230001"
+    assert values[31].date() == date(2023, 1, 15)
+    assert values[32] == "PRIO-1"
+    assert values[33].date() == date(2022, 12, 1)
+    assert values[34] == "JP20240001A1|US20240001A1"
+    assert values[37] == "sample.xlsx"
+    assert values[2] is None
+    assert values[12] is None
+    assert values[18] is None
