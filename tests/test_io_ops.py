@@ -196,9 +196,8 @@ def test_template_export_uses_screener_column_schema() -> None:
                 "publication_date": pd.Timestamp("2024-02-01"),
                 "application_number": "JP20230001",
                 "application_date": pd.Timestamp("2023-01-15"),
-                "priority_number": "PRIO-1",
-                "priority_date": pd.Timestamp("2022-12-01"),
-                "dwpi_family_members": "JP20240001A1|US20240001A1",
+                "優先権情報": "PRIO-1(2022-12-01)",
+                "DWPI ファミリーメンバー": "JP20240001A1|US20240001A1",
                 "accession_number": "ACC-001",
                 "language_of_publication": "JA",
                 "title_english": "Sample title",
@@ -236,10 +235,9 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert values[29].date() == date(2024, 2, 1)
     assert values[30] == "JP20230001"
     assert values[31].date() == date(2023, 1, 15)
-    assert values[32] == "PRIO-1"
-    assert values[33].date() == date(2022, 12, 1)
-    assert values[34] == "JP20240001A1|US20240001A1"
-    assert values[37] == "sample.xlsx"
+    assert values[32] == "PRIO-1(2022-12-01)"
+    assert values[33] == "JP20240001A1|US20240001A1"
+    assert values[36] == "sample.xlsx"
     assert values[2] is None
     assert values[12] is None
     assert values[18] is None

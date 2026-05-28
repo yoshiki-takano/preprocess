@@ -57,8 +57,7 @@ TEMPLATE_OUTPUT_COLUMNS = [
     "公報発行日",
     "出願番号",
     "出願日",
-    "優先権主張番号",
-    "優先権主張日",
+    "優先権情報",
     "DWPI ファミリーメンバー",
     "INPADOC ファミリーメンバー",
     "独立請求項番号",
@@ -76,9 +75,8 @@ TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "公報発行日": "publication_date",
     "出願番号": "application_number",
     "出願日": "application_date",
-    "優先権主張番号": "priority_number",
-    "優先権主張日": "priority_date",
-    "DWPI ファミリーメンバー": "dwpi_family_members",
+    "優先権情報": ["優先権情報", "priority_number"],
+    "DWPI ファミリーメンバー": ["DWPI ファミリーメンバー", "dwpi_family_members"],
     "FileName": "source_file",
 }
 
@@ -169,7 +167,7 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
         values = selected_df[source_column]
         if column == "NUMBER" or column == "公報番号":
             out[column] = values.fillna("").astype(str)
-        elif column in {"公報発行日", "出願日", "優先権主張日"}:
+        elif column in {"公報発行日", "出願日"}:
             out[column] = pd.to_datetime(values, errors="coerce").dt.date
         else:
             out[column] = values.map(_normalize_export_text)

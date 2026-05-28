@@ -98,6 +98,7 @@ def _render_paginated_dataframe(
     key_prefix: str,
     family_count: int | None = None,
     no_acc_count: int | None = None,
+    before_search_controls_renderer=None,
 ) -> None:
     st.subheader(section_title)
     total_rows = len(df)
@@ -107,6 +108,9 @@ def _render_paginated_dataframe(
     if no_acc_count is not None:
         parts.append(f"no_acc: {no_acc_count:,}")
     st.write(" / ".join(parts))
+
+    if before_search_controls_renderer is not None:
+        before_search_controls_renderer()
 
     if total_rows == 0:
         st.dataframe(df, width="stretch")
@@ -368,14 +372,6 @@ if uploaded_files:
         st.success("抽出が完了しました。")
         st.metric("抽出件数", f"{len(selected_df):,}")
 
-        selected_family_count, _ = _compute_family_no_acc_counts(selected_df)
-        _render_paginated_dataframe(
-            selected_df.rename(columns=OUTPUT_COLUMN_RENAME),
-            "抽出結果",
-            "selected_preview",
-            family_count=selected_family_count,
-        )
-
         output_extension = _detect_output_extension(st.session_state["output_bytes"], template_is_xlsm)
         output_file_name = f"{date.today():%Y%m%d}_selected_patents.{output_extension}"
         output_mime = (
@@ -383,13 +379,24 @@ if uploaded_files:
             if output_extension == "xlsm"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        if template_is_xlsm and output_extension != "xlsm":
-            st.warning("テンプレートの読み込み互換性問題により、出力形式を .xlsx に切り替えました。")
-        st.download_button(
-            label=f"結果をダウンロード (.{output_extension})",
-            data=st.session_state["output_bytes"],
-            file_name=output_file_name,
-            mime=output_mime,
+
+        def _render_download_button() -> None:
+            if template_is_xlsm and output_extension != "xlsm":
+                st.warning("テンプレートの読み込み互換性問題により、出力形式を .xlsx に切り替えました。")
+            st.download_button(
+                label=f"結果をダウンロード (.{output_extension})",
+                data=st.session_state["output_bytes"],
+                file_name=output_file_name,
+                mime=output_mime,
+            )
+
+        selected_family_count, _ = _compute_family_no_acc_counts(selected_df)
+        _render_paginated_dataframe(
+            selected_df.rename(columns=OUTPUT_COLUMN_RENAME),
+            "抽出結果",
+            "selected_preview",
+            family_count=selected_family_count,
+            before_search_controls_renderer=_render_download_button,
         )
 else:
     st.info("入力ファイルを選択してください。")
