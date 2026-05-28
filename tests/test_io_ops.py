@@ -243,3 +243,33 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert values[2] is None
     assert values[12] is None
     assert values[18] is None
+
+
+def test_template_export_falls_back_to_applicant_rights_column() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "application_number": "JP20230001",
+                "application_date": pd.Timestamp("2023-01-15"),
+                "出願人/権利者": "Applicant From Pipeline",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    values = [cell.value for cell in result_ws[2]]
+    assert values[17] == "Applicant From Pipeline"

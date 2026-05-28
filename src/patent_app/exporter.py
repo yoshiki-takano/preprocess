@@ -65,13 +65,13 @@ TEMPLATE_OUTPUT_COLUMNS = [
     "FileName",
 ]
 
-TEMPLATE_OUTPUT_SOURCE_MAP = {
+TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "NUMBER": "selected_patent_number",
     "公報番号": "selected_patent_number",
     "公報言語": "language_of_publication",
     "タイトル (英語)": "title_english",
     "タイトル - DWPI": "title_dwpi",
-    "譲受人/出願人": "assignee_applicant",
+    "譲受人/出願人": ["assignee_applicant", "出願人/権利者"],
     "DWPI アクセッション番号": "accession_number",
     "公報発行日": "publication_date",
     "出願番号": "application_number",
@@ -160,14 +160,13 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
             out[column] = [None] * row_count
             continue
 
-        if source not in selected_df.columns:
-            if column == "NUMBER" or column == "公報番号":
-                out[column] = [None] * row_count
-            else:
-                out[column] = [None] * row_count
+        source_candidates = [source] if isinstance(source, str) else source
+        source_column = next((candidate for candidate in source_candidates if candidate in selected_df.columns), None)
+        if source_column is None:
+            out[column] = [None] * row_count
             continue
 
-        values = selected_df[source]
+        values = selected_df[source_column]
         if column == "NUMBER" or column == "公報番号":
             out[column] = values.fillna("").astype(str)
         elif column in {"公報発行日", "出願日", "優先権主張日"}:
