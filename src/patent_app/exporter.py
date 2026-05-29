@@ -81,21 +81,41 @@ TEMPLATE_OUTPUT_COLUMNS = [
 TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "NUMBER": "selected_patent_number",
     "公報番号": "selected_patent_number",
+    "請求項数": ["請求項数", "claim_count", "number_of_claims", "claims_count"],
     "公報言語": "language_of_publication",
     "タイトル (英語)": ["title_english", "タイトル (英語)", "タイトル（英語）"],
     "タイトル - DWPI": ["title_dwpi", "タイトル - DWPI"],
     "譲受人/出願人": ["assignee_applicant", "出願人/権利者"],
     "譲受人 - DWPI": ["譲受人 - DWPI", "assignee_dwpi"],
     "譲受人 - 標準化": ["譲受人 - 標準化", "assignee_standardized"],
+    "IPC - 最新": ["IPC - 最新", "ipc_latest", "latest_ipc", "ipc_classification"],
+    "US クラス": ["US クラス", "us_class", "us_classification", "uspc_class"],
+    "CPC - 最新": ["CPC - 最新", "cpc_latest", "latest_cpc", "cpc_classification"],
+    "抄録 (英語)": ["抄録 (英語)", "抄録（英語）", "abstract_english", "abstract (english)", "abstract_eng"],
+    "抄録 - DWPI 優位性": [
+        "抄録 - DWPI 優位性",
+        "abstract_dwpi_advantage",
+        "dwpi_abstract_advantage",
+        "abstract-dwpi-advantage",
+    ],
+    "抄録 - DWPI 新規性": [
+        "抄録 - DWPI 新規性",
+        "abstract_dwpi_novelty",
+        "dwpi_abstract_novelty",
+        "abstract-dwpi-novelty",
+    ],
+    "抄録 - DWPI 用途": ["抄録 - DWPI 用途", "abstract_dwpi_use", "dwpi_abstract_use", "abstract-dwpi-use"],
+    "請求項 (英語)": ["請求項 (英語)", "請求項（英語）", "claims_english", "claims (english)", "claim_text"],
     "DWPI アクセッション番号": "accession_number",
     "公報発行日": "publication_date",
     "出願番号": "application_number",
     "出願日": "application_date",
-    "優先権主張番号": "priority_number",
-    "優先権主張日": "priority_date",
+    "優先権主張番号": ["優先権主張番号", "priority_number"],
+    "優先権主張日": ["優先権主張日", "priority_date"],
     "優先権情報": ["優先権情報", "priority_number"],
     "DWPI ファミリーメンバー": ["DWPI ファミリーメンバー", "dwpi_family_members"],
     "DWPI ファミリーメンバー 有効/無効": ["DWPI ファミリーメンバー 有効/無効", "dwpi_family_members_status"],
+    "INPADOC ファミリーメンバー": ["INPADOC ファミリーメンバー", "inpadoc_family_members", "inpadoc_family"],
     "FileName": "source_file",
     "公開番号": "publication_number",
     "登録番号": "registration_number",
@@ -197,8 +217,10 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
         values = selected_df[source_column]
         if column == "NUMBER" or column == "公報番号":
             out[column] = values.fillna("").astype(str)
-        elif column in {"公報発行日", "出願日", "優先権主張日"}:
+        elif column in {"公報発行日", "出願日"}:
             out[column] = pd.to_datetime(values, errors="coerce").dt.date
+        elif column == "優先権主張日":
+            out[column] = values.map(_normalize_priority_date_text)
         else:
             out[column] = values.map(_normalize_export_text)
 
@@ -218,6 +240,24 @@ def _normalize_export_text(value: object) -> object:
         return None
     text = str(value).strip()
     return text if text else None
+
+
+def _normalize_priority_date_text(value: object) -> object:
+    if pd.isna(value):
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return value.date().isoformat()
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    parsed = pd.to_datetime(text, errors="coerce")
+    if not pd.isna(parsed):
+        return parsed.date().isoformat()
+
+    return text
 
 
 def _load_template_workbook(template_bytes: bytes, keep_vba: bool) -> Workbook:

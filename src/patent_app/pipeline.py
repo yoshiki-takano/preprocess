@@ -1353,9 +1353,12 @@ def _reorder_selected_columns(df: pd.DataFrame) -> pd.DataFrame:
         "タイトル - DWPI",
         "出願人/権利者",
         "譲受人 - DWPI",
+        "譲受人 - 標準化",
         "publication_date",
         "application_number",
         "application_date",
+        "優先権主張番号",
+        "優先権主張日",
         "優先権情報",
         "legal_status",
         "DWPI ファミリーメンバー",
@@ -1535,6 +1538,9 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             "タイトル - DWPI",
             "出願人/権利者",
             "譲受人 - DWPI",
+            "譲受人 - 標準化",
+            "優先権主張番号",
+            "優先権主張日",
             "優先権情報",
             "DWPI ファミリーメンバー",
             "五庁有効ファミリ",
@@ -1555,7 +1561,10 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     title_en: list[str] = []
     title_dwpi: list[str] = []
     assignee_dwpi: list[str] = []
+    assignee_standardized: list[str] = []
     applicant_rights: list[str] = []
+    priority_numbers: list[str] = []
+    priority_dates: list[str] = []
     priority_info: list[str] = []
     family_members: list[str] = []
     five_alive: list[str] = []
@@ -1575,7 +1584,10 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             title_en.append("")
             title_dwpi.append("")
             assignee_dwpi.append("")
+            assignee_standardized.append("")
             applicant_rights.append("")
+            priority_numbers.append("")
+            priority_dates.append("")
             priority_info.append("")
             family_members.append("")
             five_alive.append("")
@@ -1587,8 +1599,13 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
         title_en.append(_as_text(source_row.get("title_english", "")))
         title_dwpi.append(_as_text(source_row.get("title_dwpi", "")))
         assignee_dwpi.append(_as_text(source_row.get("assignee_dwpi", "")))
+        assignee_standardized.append(_as_text(source_row.get("assignee_standardized", "")))
         applicant_rights.append(_compose_applicant_rights_holder(source_row))
-        priority_info.append(_pair_priority_info(source_row.get("priority_number", ""), source_row.get("priority_date", "")))
+        priority_number = _as_text(source_row.get("priority_number", ""))
+        priority_date = _as_text(source_row.get("priority_date", ""))
+        priority_numbers.append(priority_number)
+        priority_dates.append(priority_date)
+        priority_info.append(_pair_priority_info(priority_number, priority_date))
         family_members.append(_as_text(source_row.get("dwpi_family_members", "")))
 
         alive_text, dead_text, other_text = _split_family_members_by_status(
@@ -1603,6 +1620,9 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     out["タイトル - DWPI"] = title_dwpi
     out["出願人/権利者"] = applicant_rights
     out["譲受人 - DWPI"] = assignee_dwpi
+    out["譲受人 - 標準化"] = assignee_standardized
+    out["優先権主張番号"] = priority_numbers
+    out["優先権主張日"] = priority_dates
     out["優先権情報"] = priority_info
     out["DWPI ファミリーメンバー"] = family_members
     out["五庁有効ファミリ"] = five_alive

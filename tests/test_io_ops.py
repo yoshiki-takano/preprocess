@@ -212,7 +212,7 @@ def test_template_export_uses_screener_column_schema() -> None:
                 "application_number": "JP20230001",
                 "application_date": pd.Timestamp("2023-01-15"),
                 "priority_number": "PRIO-1",
-                "priority_date": pd.Timestamp("2022-12-01"),
+                "priority_date": "2022-12-01 | 2023-01-10",
                 "優先権情報": "PRIO-1(2022-12-01)",
                 "DWPI ファミリーメンバー": "JP20240001A1|US20240001A1",
                 "dwpi_family_members_status": "JP20240001A1 Alive|US20240001A1 Dead",
@@ -223,6 +223,16 @@ def test_template_export_uses_screener_column_schema() -> None:
                 "assignee_applicant": "Applicant A",
                 "assignee_dwpi": "DWPI Applicant",
                 "assignee_standardized": "Standardized Applicant",
+                "請求項数": "18",
+                "IPC - 最新": "A01B 1/00",
+                "US クラス": "435/6",
+                "CPC - 最新": "A01B1/00",
+                "抄録（英語）": "English abstract",
+                "抄録 - DWPI 優位性": "DWPI advantage",
+                "抄録 - DWPI 新規性": "DWPI novelty",
+                "抄録 - DWPI 用途": "DWPI use",
+                "請求項 (英語)": "English claims",
+                "INPADOC ファミリーメンバー": "JP20240001A1|US20240001A1",
                 "五庁有効ファミリ": "JP20240001A1",
                 "五庁失効ファミリ": "US20240001A1",
                 "その他ファミリ": "WO2024000001A1",
@@ -259,15 +269,25 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert row["譲受人/出願人"] == "Applicant A"
     assert row["譲受人 - DWPI"] == "DWPI Applicant"
     assert row["譲受人 - 標準化"] == "Standardized Applicant"
+    assert row["請求項数"] == "18"
+    assert row["IPC - 最新"] == "A01B 1/00"
+    assert row["US クラス"] == "435/6"
+    assert row["CPC - 最新"] == "A01B1/00"
+    assert row["抄録 (英語)"] == "English abstract"
+    assert row["抄録 - DWPI 優位性"] == "DWPI advantage"
+    assert row["抄録 - DWPI 新規性"] == "DWPI novelty"
+    assert row["抄録 - DWPI 用途"] == "DWPI use"
+    assert row["請求項 (英語)"] == "English claims"
     assert row["DWPI アクセッション番号"] == "ACC-001"
     assert row["公報発行日"].date() == date(2024, 2, 1)
     assert row["出願番号"] == "JP20230001"
     assert row["出願日"].date() == date(2023, 1, 15)
     assert row["優先権主張番号"] == "PRIO-1"
-    assert row["優先権主張日"].date() == date(2022, 12, 1)
+    assert row["優先権主張日"] == "2022-12-01 | 2023-01-10"
     assert row["優先権情報"] == "PRIO-1(2022-12-01)"
     assert row["DWPI ファミリーメンバー"] == "JP20240001A1|US20240001A1"
     assert row["DWPI ファミリーメンバー 有効/無効"] == "JP20240001A1 Alive|US20240001A1 Dead"
+    assert row["INPADOC ファミリーメンバー"] == "JP20240001A1|US20240001A1"
     assert row["FileName"] == "sample.xlsx"
     assert row["公開番号"] == "JP20240001A1"
     assert row["登録番号"] == "JP7654321B2"
@@ -277,7 +297,6 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert row["無効/有効"] == "Alive"
     assert row["国名コード"] == "JP"
     assert row["PDF コピー"] is None
-    assert row["IPC - 最新"] is None
 
 
 def test_template_export_falls_back_to_applicant_rights_column() -> None:
@@ -340,6 +359,34 @@ def test_template_export_fills_title_columns_from_japanese_named_sources() -> No
     row = dict(zip(headers, values))
     assert row["タイトル (英語)"] == "Title From Pipeline"
     assert row["タイトル - DWPI"] == "DWPI From Pipeline"
+
+
+def test_template_export_fills_claims_column_from_fullwidth_header() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "請求項（英語）": "Claims From Pipeline",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["請求項 (英語)"] == "Claims From Pipeline"
 
 
 def test_template_export_appends_passthrough_columns_after_fixed_schema() -> None:
