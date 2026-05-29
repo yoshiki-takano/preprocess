@@ -116,7 +116,15 @@ TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "DWPI ファミリーメンバー": ["DWPI ファミリーメンバー", "dwpi_family_members"],
     "DWPI ファミリーメンバー 有効/無効": ["DWPI ファミリーメンバー 有効/無効", "dwpi_family_members_status"],
     "INPADOC ファミリーメンバー": ["INPADOC ファミリーメンバー", "inpadoc_family_members", "inpadoc_family"],
-    "独立請求項番号": ["独立請求項番号", "独立請求項"],
+    "独立請求項番号": [
+        "独立請求項番号",
+        "独立請求項",
+        "請求項 (英語)",
+        "請求項（英語）",
+        "claims_english",
+        "claims (english)",
+        "claim_text",
+    ],
     "FileName": "source_file",
     "公開番号": "publication_number",
     "登録番号": "registration_number",
@@ -227,7 +235,7 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
         elif column == "優先権主張日":
             out[column] = values.map(_normalize_priority_date_text)
         elif column == "独立請求項番号":
-            out[column] = values.map(_normalize_independent_claim_numbers)
+            out[column] = values.map(lambda value: _normalize_independent_claim_numbers(value, source_column))
         else:
             out[column] = values.map(_normalize_export_text)
 
@@ -269,7 +277,7 @@ def _normalize_priority_date_text(value: object) -> object:
     return text
 
 
-def _normalize_independent_claim_numbers(value: object) -> object:
+def _normalize_independent_claim_numbers(value: object, source_column: str) -> object:
     if pd.isna(value):
         return None
 
@@ -277,6 +285,16 @@ def _normalize_independent_claim_numbers(value: object) -> object:
     if not text:
         return None
 
+    if source_column == "独立請求項番号":
+        return _normalize_export_text(text)
+
+    if source_column in {"請求項 (英語)", "請求項（英語）", "claims_english", "claims (english)", "claim_text"}:
+        return _extract_independent_claim_numbers_from_english_claims(text)
+
+    return _extract_claim_numbers_from_text(text)
+
+
+def _extract_claim_numbers_from_text(text: str) -> object:
     normalized = text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
     parts = re.split(r"[\n\r\t,、;；|]+", normalized)
 
@@ -305,6 +323,47 @@ def _normalize_independent_claim_numbers(value: object) -> object:
 
     numbers.sort()
     return ",".join(str(num) for num in numbers)
+
+
+def _extract_independent_claim_numbers_from_english_claims(text: str) -> object:
+    normalized = text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    pairs = _parse_english_claim_pairs(normalized)
+    if not pairs:
+        return _extract_claim_numbers_from_text(text)
+
+    independent_numbers: list[int] = []
+    seen: set[int] = set()
+    for idx, (claim_no, claim_body) in enumerate(pairs):
+        body_lower = claim_body.lower()
+        is_canceled = "canceled" in body_lower or "cancelled" in body_lower
+        contains_claim_word = bool(re.search(r"\bclaims?\b", body_lower))
+        is_independent = (not is_canceled) and ((idx == 0) or (not contains_claim_word))
+        if is_independent and claim_no not in seen:
+            seen.add(claim_no)
+            independent_numbers.append(claim_no)
+
+    if not independent_numbers:
+        return None
+
+    independent_numbers.sort()
+    return ",".join(str(num) for num in independent_numbers)
+
+
+def _parse_english_claim_pairs(text: str) -> list[tuple[int, str]]:
+    start_pattern = re.compile(r"(?:^|\n)\s*(\d+)\s*[\.)\]:]\s*", flags=re.IGNORECASE)
+    matches = list(start_pattern.finditer(text))
+    if not matches:
+        return []
+
+    pairs: list[tuple[int, str]] = []
+    for idx, match in enumerate(matches):
+        claim_no = int(match.group(1))
+        body_start = match.end()
+        body_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        claim_body = text[body_start:body_end].strip()
+        pairs.append((claim_no, claim_body))
+
+    return pairs
 
 
 def _load_template_workbook(template_bytes: bytes, keep_vba: bool) -> Workbook:
