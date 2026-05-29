@@ -274,6 +274,51 @@ def test_selected_registration_uses_registration_hyperlink_url() -> None:
     assert selected.iloc[0][INTERNAL_PUBLICATION_URL_COLUMN] == "https://example.com/reg/US12619815B2"
 
 
+def test_selected_registration_uses_registration_pdf_copy_text() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP1",
+                "publication_number": "US20250299024A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2025-09-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "特許",
+                "accession_number": "DWX",
+                "family_id": "FX",
+                "country_code": "US",
+                "PDF コピー": "https://example.com/pdf/pub/US20250299024A1",
+            },
+            {
+                "application_number": "APP1",
+                "publication_number": "",
+                "registration_number": "US12619815B2",
+                "publication_date": pd.NaT,
+                "registration_date": pd.Timestamp("2026-03-01"),
+                "legal_status": "active",
+                "kind": "特許",
+                "accession_number": "DWX",
+                "family_id": "FX",
+                "country_code": "US",
+                "PDF コピー": "https://example.com/pdf/reg/US12619815B2",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["US"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "US12619815B2"
+    assert selected.iloc[0]["PDF コピー"] == "https://example.com/pdf/reg/US12619815B2"
+
+
 def test_selected_column_order_starts_with_requested_fields() -> None:
     cfg = SelectionConfig(
         mode="family",
