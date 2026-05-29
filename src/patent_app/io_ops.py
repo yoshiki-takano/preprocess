@@ -50,6 +50,7 @@ FRONT_PAGE_IMAGE_ALIASES = (
 FRONT_PAGE_FIGURE_ALIASES = (
     "フロントページ図",
 )
+HTTP_URL_PATTERN = re.compile(r"^https?://", re.IGNORECASE)
 
 
 def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
@@ -409,8 +410,6 @@ def _attach_front_page_hyperlink_urls(
 
     drawing_hyperlinks = _extract_first_sheet_drawing_hyperlinks(file_bytes)
     sheet_hyperlinks = _extract_first_sheet_hyperlinks(file_bytes)
-    if not drawing_hyperlinks and not sheet_hyperlinks:
-        return data_df
 
     out = data_df.copy()
     out = _attach_single_column_hyperlink_urls(
@@ -446,8 +445,6 @@ def _attach_single_column_hyperlink_urls(
         key = (row_number, col_idx)
         extracted = drawing_hyperlinks.get(key) or sheet_hyperlinks.get(key) or ""
         extracted_urls.append(extracted)
-    if not any(extracted_urls):
-        return data_df
 
     out = data_df.copy()
     target_col = str(out.columns[col_idx - 1])
@@ -458,8 +455,12 @@ def _attach_single_column_hyperlink_urls(
             # Front page columns often contain patent numbers as placeholders.
             # Prefer the extracted URL whenever available.
             merged_values.append(extracted)
-        else:
+        elif HTTP_URL_PATTERN.match(current):
+            # Keep existing URL text only when it is already a valid URL.
             merged_values.append(current)
+        else:
+            # Drop non-URL placeholders (often patent numbers).
+            merged_values.append("")
     out[target_col] = merged_values
     return out
 

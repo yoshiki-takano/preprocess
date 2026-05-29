@@ -78,6 +78,21 @@ def test_load_dataframe_extracts_pdf_icon_hyperlinks_into_pdf_link_column() -> N
     assert df["フロントページ図"].fillna("").astype(str).str.startswith("http").any()
 
 
+def test_load_dataframe_clears_front_page_patent_number_placeholders_without_hyperlinks() -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["公報番号", "フロントページ イメージ", "フロントページ図"])
+    ws.append(["US12619815B2", "US12619815B2", "US12619815B2"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    df = load_dataframe("sample.xlsx", buf.getvalue())
+
+    assert df.iloc[0]["フロントページ イメージ"] == ""
+    assert df.iloc[0]["フロントページ図"] == ""
+
+
 def test_country_code_is_generated_from_publication_number() -> None:
     source = pd.DataFrame(
         {
