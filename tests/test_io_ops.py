@@ -653,3 +653,110 @@ def test_non_template_export_keeps_passthrough_columns() -> None:
     values = [cell.value for cell in result_ws[2]]
     row = dict(zip(headers, values))
     assert row["明細 (英語)"] == "Detailed specification"
+
+
+def test_template_export_embeds_hyperlink_in_publication_number_cells() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "publication_url": "https://example.com/patent/JP20240001A1",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    number_col = headers.index("NUMBER") + 1
+    koho_col = headers.index("公報番号") + 1
+
+    number_cell = result_ws.cell(row=2, column=number_col)
+    koho_cell = result_ws.cell(row=2, column=koho_col)
+
+    assert number_cell.value == "JP20240001A1"
+    assert koho_cell.value == "JP20240001A1"
+    assert number_cell.hyperlink is not None
+    assert koho_cell.hyperlink is not None
+    assert number_cell.hyperlink.target == "https://example.com/patent/JP20240001A1"
+    assert koho_cell.hyperlink.target == "https://example.com/patent/JP20240001A1"
+
+
+def test_non_template_export_embeds_hyperlink_in_publication_number_cell() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "publication_url": "https://example.com/p/JP20240001A1",
+            }
+        ]
+    )
+
+    output_bytes = build_xlsx_bytes(selected)
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    koho_col = headers.index("公報番号") + 1
+    koho_cell = result_ws.cell(row=2, column=koho_col)
+
+    assert koho_cell.value == "JP20240001A1"
+    assert koho_cell.hyperlink is not None
+    assert koho_cell.hyperlink.target == "https://example.com/p/JP20240001A1"
+
+
+def test_non_template_export_skips_invalid_publication_url() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "publication_url": "www.example.com/no-scheme",
+            }
+        ]
+    )
+
+    output_bytes = build_xlsx_bytes(selected)
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    koho_col = headers.index("公報番号") + 1
+    koho_cell = result_ws.cell(row=2, column=koho_col)
+
+    assert koho_cell.value == "JP20240001A1"
+    assert koho_cell.hyperlink is None
+
+
+def test_non_template_export_extracts_publication_url_from_publication_number_text() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1 https://example.com/q/JP20240001A1)",
+            }
+        ]
+    )
+
+    output_bytes = build_xlsx_bytes(selected)
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    koho_col = headers.index("公報番号") + 1
+    koho_cell = result_ws.cell(row=2, column=koho_col)
+
+    assert koho_cell.value == "JP20240001A1"
+    assert koho_cell.hyperlink is not None
+    assert koho_cell.hyperlink.target == "https://example.com/q/JP20240001A1"

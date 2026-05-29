@@ -10,6 +10,25 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+PUBLICATION_LINK_TARGET_COLUMNS = ("公報番号", "NUMBER")
+PUBLICATION_URL_SOURCE_COLUMNS = (
+    "publication_url",
+    "公報番号URL",
+    "公報番号 URL",
+    "公開番号URL",
+    "公開番号 URL",
+    "URL",
+    "url",
+    "Link",
+    "link",
+    "selected_patent_number",
+    "publication_number",
+    "公報番号",
+    "公開番号",
+    "NUMBER",
+)
+URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
+
 OUTPUT_COLUMN_RENAME: dict[str, str] = {
     "country_code": "国名コード",
     "accession_number": "ファミリ番号",
@@ -207,6 +226,60 @@ def _write_dataframe(ws, df: pd.DataFrame) -> None:
     ws.delete_rows(1, ws.max_row)
     for row in dataframe_to_rows(df, index=False, header=True):
         ws.append(row)
+    _attach_publication_hyperlinks(ws, df)
+
+
+def _attach_publication_hyperlinks(ws, df: pd.DataFrame) -> None:
+    if df.empty:
+        return
+
+    header_to_index = {str(cell.value): idx for idx, cell in enumerate(ws[1], start=1) if cell.value is not None}
+    target_columns = [name for name in PUBLICATION_LINK_TARGET_COLUMNS if name in header_to_index]
+    if not target_columns:
+        return
+
+    for row_number, (_, row) in enumerate(df.iterrows(), start=2):
+        url = _extract_publication_url_from_row(row)
+        if not url:
+            continue
+        for column_name in target_columns:
+            cell = ws.cell(row=row_number, column=header_to_index[column_name])
+            if cell.value is None:
+                continue
+            display_text = str(cell.value).strip()
+            if not display_text:
+                continue
+            cell.hyperlink = url
+            cell.style = "Hyperlink"
+
+
+def _extract_publication_url_from_row(row: pd.Series) -> str | None:
+    for column_name in PUBLICATION_URL_SOURCE_COLUMNS:
+        if column_name not in row.index:
+            continue
+        url = _extract_first_http_url(row[column_name])
+        if url:
+            return url
+    return None
+
+
+def _extract_first_http_url(value: object) -> str | None:
+    if pd.isna(value):
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    match = URL_PATTERN.search(text)
+    if not match:
+        return None
+
+    return _trim_url_trailing_punctuation(match.group(0))
+
+
+def _trim_url_trailing_punctuation(url: str) -> str:
+    return url.rstrip(".,;:!?)]}>\"'）】」")
 
 
 def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:

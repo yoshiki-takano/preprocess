@@ -91,6 +91,7 @@ def canonicalize_dataframe(
     for col in [
         "application_number",
         "publication_number",
+        "publication_url",
         "registration_number",
         "legal_status",
         "kind",
