@@ -38,9 +38,12 @@ HEADER_HINTS = {
     "譲受人 - dwpi",
     "dwpiファミリーメンバー",
     "dwpiファミリーメンバー有効/無効",
+    "pdfコピー",
+    "pdfcopy",
 }
 
 INTERNAL_PUBLICATION_URL_COLUMN = "__publication_hyperlink_url__"
+PDF_LINK_COLUMN = "PDFリンク"
 
 
 def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
@@ -56,7 +59,9 @@ def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
     if lower_name.endswith(".xlsx") or lower_name.endswith(".xlsm"):
         raw_df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=None)
         data_df, source_rows = _promote_detected_header_with_row_map(raw_df)
-        return _attach_publication_hyperlink_urls(data_df, source_rows, file_bytes)
+        data_df = _attach_publication_hyperlink_urls(data_df, source_rows, file_bytes)
+        data_df = _attach_pdf_copy_hyperlink_urls(data_df, source_rows, file_bytes)
+        return data_df
     raise ValueError("Unsupported file type. Use .xlsx, .xlsm, or .csv")
 
 
@@ -351,8 +356,59 @@ def _attach_publication_hyperlink_urls(
     return out
 
 
+def _attach_pdf_copy_hyperlink_urls(
+    data_df: pd.DataFrame,
+    source_rows: list[int],
+    file_bytes: bytes,
+) -> pd.DataFrame:
+    if data_df.empty:
+        return data_df
+
+    pdf_copy_col_idx = _find_pdf_copy_column_index(data_df.columns)
+    if pdf_copy_col_idx is None:
+        return data_df
+
+    drawing_hyperlinks = _extract_first_sheet_drawing_hyperlinks(file_bytes)
+    sheet_hyperlinks = _extract_first_sheet_hyperlinks(file_bytes)
+    if not drawing_hyperlinks and not sheet_hyperlinks:
+        return data_df
+
+    extracted_urls: list[str] = []
+    for row_number in source_rows:
+        key = (row_number, pdf_copy_col_idx)
+        extracted = drawing_hyperlinks.get(key) or sheet_hyperlinks.get(key) or ""
+        extracted_urls.append(extracted)
+
+    if not any(extracted_urls):
+        return data_df
+
+    out = data_df.copy()
+    if PDF_LINK_COLUMN in out.columns:
+        existing_values = out[PDF_LINK_COLUMN].fillna("").astype(str).map(_normalize_text)
+        out[PDF_LINK_COLUMN] = [
+            current if current else extracted
+            for current, extracted in zip(existing_values, extracted_urls)
+        ]
+    else:
+        out[PDF_LINK_COLUMN] = extracted_urls
+    return out
+
+
 def _find_publication_number_column_index(columns: pd.Index) -> int | None:
     aliases = {_normalize_name(alias) for alias in CANONICAL_COLUMNS.get("publication_number", [])}
+    for idx, column in enumerate(columns, start=1):
+        if _normalize_name(column) in aliases:
+            return idx
+    return None
+
+
+def _find_pdf_copy_column_index(columns: pd.Index) -> int | None:
+    aliases = {
+        _normalize_name("PDF コピー"),
+        _normalize_name("PDFコピー"),
+        _normalize_name("PDF Copy"),
+        _normalize_name("pdf_copy"),
+    }
     for idx, column in enumerate(columns, start=1):
         if _normalize_name(column) in aliases:
             return idx
@@ -390,6 +446,78 @@ def _extract_first_sheet_hyperlinks(file_bytes: bytes) -> dict[tuple[int, int], 
                 hyperlink_targets[(row_number, col_number)] = target
 
             return hyperlink_targets
+    except Exception:
+        return {}
+
+
+def _extract_first_sheet_drawing_hyperlinks(file_bytes: bytes) -> dict[tuple[int, int], str]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            sheet_path = _resolve_first_sheet_path(archive)
+            if not sheet_path or sheet_path not in archive.namelist():
+                return {}
+
+            sheet_xml = ET.fromstring(archive.read(sheet_path))
+            ns = {
+                "m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+                "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+                "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+            }
+
+            drawing_rel_id = None
+            drawing_node = sheet_xml.find(".//m:drawing", ns)
+            if drawing_node is not None:
+                drawing_rel_id = drawing_node.attrib.get(
+                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+                )
+            if not drawing_rel_id:
+                return {}
+
+            sheet_rels = _load_sheet_relationships(archive, sheet_path)
+            drawing_target = sheet_rels.get(drawing_rel_id, {}).get("Target", "")
+            if not drawing_target:
+                return {}
+
+            drawing_path = _resolve_part_path(sheet_path, drawing_target)
+            if drawing_path not in archive.namelist():
+                return {}
+
+            drawing_rels = _load_part_hyperlink_relationships(archive, drawing_path)
+            if not drawing_rels:
+                return {}
+
+            drawing_xml = ET.fromstring(archive.read(drawing_path))
+            out: dict[tuple[int, int], str] = {}
+
+            anchors = list(drawing_xml.findall("xdr:twoCellAnchor", ns)) + list(
+                drawing_xml.findall("xdr:oneCellAnchor", ns)
+            )
+            for anchor in anchors:
+                from_node = anchor.find("xdr:from", ns)
+                if from_node is None:
+                    continue
+                col_text = from_node.findtext("xdr:col", default="", namespaces=ns)
+                row_text = from_node.findtext("xdr:row", default="", namespaces=ns)
+                if not col_text or not row_text:
+                    continue
+                col_number = int(col_text) + 1
+                row_number = int(row_text) + 1
+
+                hlink_node = anchor.find(".//a:hlinkClick", ns)
+                if hlink_node is None:
+                    continue
+                rel_id = hlink_node.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+                if not rel_id:
+                    continue
+                target = drawing_rels.get(rel_id)
+                if not target:
+                    continue
+                key = (row_number, col_number)
+                if key not in out:
+                    out[key] = target
+
+            return out
     except Exception:
         return {}
 
@@ -454,6 +582,59 @@ def _load_sheet_hyperlink_relationships(
         if rel_id and target:
             out[rel_id] = target
     return out
+
+
+def _load_sheet_relationships(archive: zipfile.ZipFile, sheet_path: str) -> dict[str, dict[str, str]]:
+    rel_ns = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    rels_path = posixpath.join(
+        posixpath.dirname(sheet_path),
+        "_rels",
+        f"{posixpath.basename(sheet_path)}.rels",
+    )
+    if rels_path not in archive.namelist():
+        return {}
+
+    rels_xml = ET.fromstring(archive.read(rels_path))
+    out: dict[str, dict[str, str]] = {}
+    for rel in rels_xml.findall("rel:Relationship", rel_ns):
+        rel_id = rel.attrib.get("Id")
+        if not rel_id:
+            continue
+        out[rel_id] = {
+            "Type": rel.attrib.get("Type", ""),
+            "Target": rel.attrib.get("Target", ""),
+        }
+    return out
+
+
+def _load_part_hyperlink_relationships(archive: zipfile.ZipFile, part_path: str) -> dict[str, str]:
+    rel_ns = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    rels_path = posixpath.join(
+        posixpath.dirname(part_path),
+        "_rels",
+        f"{posixpath.basename(part_path)}.rels",
+    )
+    if rels_path not in archive.namelist():
+        return {}
+
+    rels_xml = ET.fromstring(archive.read(rels_path))
+    out: dict[str, str] = {}
+    for rel in rels_xml.findall("rel:Relationship", rel_ns):
+        rel_type = rel.attrib.get("Type", "")
+        if not rel_type.endswith("/hyperlink"):
+            continue
+        rel_id = rel.attrib.get("Id")
+        target = rel.attrib.get("Target", "")
+        if rel_id and target:
+            out[rel_id] = target
+    return out
+
+
+def _resolve_part_path(base_part_path: str, target: str) -> str:
+    normalized_target = str(target).lstrip("/")
+    if normalized_target.startswith("xl/"):
+        return posixpath.normpath(normalized_target)
+    return posixpath.normpath(posixpath.join(posixpath.dirname(base_part_path), normalized_target))
 
 
 def _parse_cell_ref(cell_ref: str) -> tuple[int | None, int | None]:

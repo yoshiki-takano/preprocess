@@ -221,7 +221,7 @@ if "use_basic_selection" not in st.session_state:
     st.session_state["use_basic_selection"] = False
 
 
-CACHE_SCHEMA_VERSION = "2026-05-29-publication-hyperlink-v3"
+CACHE_SCHEMA_VERSION = "2026-05-29-pdf-link-extraction-v4"
 
 
 if "cache_schema_version" not in st.session_state:

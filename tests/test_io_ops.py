@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from openpyxl import Workbook, load_workbook
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
@@ -59,6 +60,18 @@ def test_load_dataframe_extracts_publication_url_from_hyperlink_cell() -> None:
     assert "publication_url" not in df.columns
     assert INTERNAL_PUBLICATION_URL_COLUMN in df.columns
     assert df.iloc[0][INTERNAL_PUBLICATION_URL_COLUMN] == "https://example.com/patent/JP8500001A"
+
+
+def test_load_dataframe_extracts_pdf_icon_hyperlinks_into_pdf_link_column() -> None:
+    sample_path = Path(__file__).resolve().parents[1] / "data" / "anthropic.xlsx"
+    if not sample_path.exists():
+        pytest.skip("anthropic.xlsx is not available in data directory")
+
+    df = load_dataframe(sample_path.name, sample_path.read_bytes())
+
+    assert "PDFリンク" in df.columns
+    non_empty_count = df["PDFリンク"].fillna("").astype(str).str.strip().ne("").sum()
+    assert non_empty_count > 0
 
 
 def test_country_code_is_generated_from_publication_number() -> None:
