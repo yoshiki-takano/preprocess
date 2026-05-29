@@ -113,6 +113,8 @@ TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "IPC - 最新": ["IPC - 最新", "ipc_latest", "latest_ipc", "ipc_classification"],
     "US クラス": ["US クラス", "us_class", "us_classification", "uspc_class"],
     "CPC - 最新": ["CPC - 最新", "cpc_latest", "latest_cpc", "cpc_classification"],
+    "フロントページ イメージ": ["フロントページ イメージ", "フロントページイメージ"],
+    "フロントページ図": ["フロントページ図"],
     "抄録 (英語)": ["抄録 (英語)", "抄録（英語）", "abstract_english", "abstract (english)", "abstract_eng"],
     "抄録 - DWPI 優位性": [
         "抄録 - DWPI 優位性",

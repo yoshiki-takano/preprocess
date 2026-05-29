@@ -72,6 +72,10 @@ def test_load_dataframe_extracts_pdf_icon_hyperlinks_into_pdf_link_column() -> N
     assert "PDF コピー" in df.columns
     non_empty_count = df["PDF コピー"].fillna("").astype(str).str.strip().ne("").sum()
     assert non_empty_count > 0
+    assert "フロントページ イメージ" in df.columns
+    assert "フロントページ図" in df.columns
+    assert df["フロントページ イメージ"].fillna("").astype(str).str.startswith("http").any()
+    assert df["フロントページ図"].fillna("").astype(str).str.startswith("http").any()
 
 
 def test_country_code_is_generated_from_publication_number() -> None:

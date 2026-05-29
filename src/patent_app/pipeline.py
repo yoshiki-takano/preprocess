@@ -1578,6 +1578,10 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     hyperlink_urls: list[str] = []
     pdf_copy_lookup = _build_patent_pdf_copy_lookup(canonical_df)
     pdf_copy_values: list[str] = []
+    front_image_lookup = _build_patent_column_lookup(canonical_df, ("フロントページ イメージ", "フロントページイメージ"))
+    front_figure_lookup = _build_patent_column_lookup(canonical_df, ("フロントページ図",))
+    front_image_values: list[str] = []
+    front_figure_values: list[str] = []
 
     for _, row in out.iterrows():
         source_row = _resolve_source_row(row, patent_lookup, accession_app_lookup)
@@ -1603,6 +1607,8 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             source_files.append(source_file_value)
             hyperlink_urls.append(_resolve_selected_hyperlink_url(row, hyperlink_lookup))
             pdf_copy_values.append(_resolve_selected_pdf_copy_text(row, pdf_copy_lookup, None))
+            front_image_values.append(_resolve_selected_column_text(row, front_image_lookup, None, ("フロントページ イメージ", "フロントページイメージ")))
+            front_figure_values.append(_resolve_selected_column_text(row, front_figure_lookup, None, ("フロントページ図",)))
             continue
 
         title_en.append(_as_text(source_row.get("title_english", "")))
@@ -1626,6 +1632,8 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
         source_files.append(source_file_value)
         hyperlink_urls.append(_resolve_selected_hyperlink_url(row, hyperlink_lookup))
         pdf_copy_values.append(_resolve_selected_pdf_copy_text(row, pdf_copy_lookup, source_row))
+        front_image_values.append(_resolve_selected_column_text(row, front_image_lookup, source_row, ("フロントページ イメージ", "フロントページイメージ")))
+        front_figure_values.append(_resolve_selected_column_text(row, front_figure_lookup, source_row, ("フロントページ図",)))
 
     out["タイトル（英語）"] = title_en
     out["タイトル - DWPI"] = title_dwpi
@@ -1636,6 +1644,8 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     out["優先権主張日"] = priority_dates
     out["優先権情報"] = priority_info
     out["PDF コピー"] = pdf_copy_values
+    out["フロントページ イメージ"] = front_image_values
+    out["フロントページ図"] = front_figure_values
     out["DWPI ファミリーメンバー"] = family_members
     out["五庁有効ファミリ"] = five_alive
     out["五庁失効ファミリ"] = five_dead
@@ -1677,6 +1687,24 @@ def _build_patent_pdf_copy_lookup(canonical_df: pd.DataFrame) -> dict[str, str]:
     return out
 
 
+def _build_patent_column_lookup(canonical_df: pd.DataFrame, candidate_columns: tuple[str, ...]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for row_dict in canonical_df.to_dict("records"):
+        value = ""
+        for column in candidate_columns:
+            value = _as_text(row_dict.get(column, ""))
+            if value:
+                break
+        if not value:
+            continue
+
+        for col in ("publication_number", "registration_number"):
+            patent_no = _as_text(row_dict.get(col, ""))
+            if patent_no and patent_no not in out:
+                out[patent_no] = value
+    return out
+
+
 def _resolve_selected_hyperlink_url(selected_row: pd.Series, hyperlink_lookup: dict[str, str]) -> str:
     for col in ("selected_patent_number", "publication_number", "registration_number"):
         patent_no = _as_text(selected_row.get(col, ""))
@@ -1693,19 +1721,33 @@ def _resolve_selected_pdf_copy_text(
     pdf_copy_lookup: dict[str, str],
     source_row: dict[str, object] | None,
 ) -> str:
+    return _resolve_selected_column_text(
+        selected_row,
+        pdf_copy_lookup,
+        source_row,
+        ("PDF コピー", "PDFコピー"),
+    )
+
+
+def _resolve_selected_column_text(
+    selected_row: pd.Series,
+    value_lookup: dict[str, str],
+    source_row: dict[str, object] | None,
+    source_row_columns: tuple[str, ...],
+) -> str:
     for col in ("selected_patent_number", "publication_number", "registration_number"):
         patent_no = _as_text(selected_row.get(col, ""))
         if not patent_no:
             continue
-        text = pdf_copy_lookup.get(patent_no, "")
+        text = value_lookup.get(patent_no, "")
         if text:
             return text
 
     if source_row is not None:
-        source_text = _as_text(source_row.get("PDF コピー", ""))
-        if source_text:
-            return source_text
-        return _as_text(source_row.get("PDFコピー", ""))
+        for column in source_row_columns:
+            source_text = _as_text(source_row.get(column, ""))
+            if source_text:
+                return source_text
     return ""
 
 

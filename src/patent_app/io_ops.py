@@ -43,6 +43,13 @@ HEADER_HINTS = {
 }
 
 INTERNAL_PUBLICATION_URL_COLUMN = "__publication_hyperlink_url__"
+FRONT_PAGE_IMAGE_ALIASES = (
+    "フロントページ イメージ",
+    "フロントページイメージ",
+)
+FRONT_PAGE_FIGURE_ALIASES = (
+    "フロントページ図",
+)
 
 
 def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
@@ -60,6 +67,7 @@ def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
         data_df, source_rows = _promote_detected_header_with_row_map(raw_df)
         data_df = _attach_publication_hyperlink_urls(data_df, source_rows, file_bytes)
         data_df = _attach_pdf_copy_hyperlink_urls(data_df, source_rows, file_bytes)
+        data_df = _attach_front_page_hyperlink_urls(data_df, source_rows, file_bytes)
         return data_df
     raise ValueError("Unsupported file type. Use .xlsx, .xlsm, or .csv")
 
@@ -391,6 +399,71 @@ def _attach_pdf_copy_hyperlink_urls(
     return out
 
 
+def _attach_front_page_hyperlink_urls(
+    data_df: pd.DataFrame,
+    source_rows: list[int],
+    file_bytes: bytes,
+) -> pd.DataFrame:
+    if data_df.empty:
+        return data_df
+
+    drawing_hyperlinks = _extract_first_sheet_drawing_hyperlinks(file_bytes)
+    sheet_hyperlinks = _extract_first_sheet_hyperlinks(file_bytes)
+    if not drawing_hyperlinks and not sheet_hyperlinks:
+        return data_df
+
+    out = data_df.copy()
+    out = _attach_single_column_hyperlink_urls(
+        out,
+        source_rows,
+        drawing_hyperlinks,
+        sheet_hyperlinks,
+        aliases=FRONT_PAGE_IMAGE_ALIASES,
+    )
+    out = _attach_single_column_hyperlink_urls(
+        out,
+        source_rows,
+        drawing_hyperlinks,
+        sheet_hyperlinks,
+        aliases=FRONT_PAGE_FIGURE_ALIASES,
+    )
+    return out
+
+
+def _attach_single_column_hyperlink_urls(
+    data_df: pd.DataFrame,
+    source_rows: list[int],
+    drawing_hyperlinks: dict[tuple[int, int], str],
+    sheet_hyperlinks: dict[tuple[int, int], str],
+    aliases: tuple[str, ...],
+) -> pd.DataFrame:
+    col_idx = _find_column_index_by_aliases(data_df.columns, aliases)
+    if col_idx is None:
+        return data_df
+
+    extracted_urls: list[str] = []
+    for row_number in source_rows:
+        key = (row_number, col_idx)
+        extracted = drawing_hyperlinks.get(key) or sheet_hyperlinks.get(key) or ""
+        extracted_urls.append(extracted)
+    if not any(extracted_urls):
+        return data_df
+
+    out = data_df.copy()
+    target_col = str(out.columns[col_idx - 1])
+    existing_values = out[target_col].fillna("").astype(str).map(_normalize_text)
+    merged_values: list[str] = []
+    for current, extracted in zip(existing_values, extracted_urls):
+        if extracted:
+            # Front page columns often contain patent numbers as placeholders.
+            # Prefer the extracted URL whenever available.
+            merged_values.append(extracted)
+        else:
+            merged_values.append(current)
+    out[target_col] = merged_values
+    return out
+
+
 def _find_publication_number_column_index(columns: pd.Index) -> int | None:
     aliases = {_normalize_name(alias) for alias in CANONICAL_COLUMNS.get("publication_number", [])}
     for idx, column in enumerate(columns, start=1):
@@ -408,6 +481,14 @@ def _find_pdf_copy_column_index(columns: pd.Index) -> int | None:
     }
     for idx, column in enumerate(columns, start=1):
         if _normalize_name(column) in aliases:
+            return idx
+    return None
+
+
+def _find_column_index_by_aliases(columns: pd.Index, aliases: tuple[str, ...]) -> int | None:
+    normalized_aliases = {_normalize_name(alias) for alias in aliases}
+    for idx, column in enumerate(columns, start=1):
+        if _normalize_name(column) in normalized_aliases:
             return idx
     return None
 
