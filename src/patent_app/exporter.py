@@ -116,6 +116,7 @@ TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "DWPI ファミリーメンバー": ["DWPI ファミリーメンバー", "dwpi_family_members"],
     "DWPI ファミリーメンバー 有効/無効": ["DWPI ファミリーメンバー 有効/無効", "dwpi_family_members_status"],
     "INPADOC ファミリーメンバー": ["INPADOC ファミリーメンバー", "inpadoc_family_members", "inpadoc_family"],
+    "独立請求項番号": ["独立請求項番号", "独立請求項"],
     "FileName": "source_file",
     "公開番号": "publication_number",
     "登録番号": "registration_number",
@@ -126,6 +127,10 @@ TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "国名コード": ["国名コード", "country_code"],
     "単一効 (EP)": ["単一効 (EP)", "単一効(EP)"],
     "発明者": ["発明者", "inventor", "inventors"],
+}
+
+TEMPLATE_SUPPRESSED_PASSTHROUGH_COLUMNS = {
+    "独立請求項",
 }
 
 TEMPLATE_BLANK_COLUMNS = {
@@ -221,6 +226,8 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
             out[column] = pd.to_datetime(values, errors="coerce").dt.date
         elif column == "優先権主張日":
             out[column] = values.map(_normalize_priority_date_text)
+        elif column == "独立請求項番号":
+            out[column] = values.map(_normalize_independent_claim_numbers)
         else:
             out[column] = values.map(_normalize_export_text)
 
@@ -228,6 +235,8 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
         if column in TEMPLATE_OUTPUT_COLUMNS:
             continue
         if column in consumed_source_columns:
+            continue
+        if column in TEMPLATE_SUPPRESSED_PASSTHROUGH_COLUMNS:
             continue
         out[column] = selected_df[column].map(_normalize_export_text)
 
@@ -258,6 +267,44 @@ def _normalize_priority_date_text(value: object) -> object:
         return parsed.date().isoformat()
 
     return text
+
+
+def _normalize_independent_claim_numbers(value: object) -> object:
+    if pd.isna(value):
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    normalized = text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    parts = re.split(r"[\n\r\t,、;；|]+", normalized)
+
+    numbers: list[int] = []
+    seen: set[int] = set()
+    for part in parts:
+        token = str(part).strip()
+        if not token:
+            continue
+        match = re.match(r"^(?:【?請求項\s*)?[\(\[]?(\d+)", token)
+        if match:
+            claim_no = int(match.group(1))
+            if claim_no not in seen:
+                seen.add(claim_no)
+                numbers.append(claim_no)
+
+    if not numbers:
+        for found in re.findall(r"請求項\s*(\d+)", normalized):
+            claim_no = int(found)
+            if claim_no not in seen:
+                seen.add(claim_no)
+                numbers.append(claim_no)
+
+    if not numbers:
+        return _normalize_export_text(text)
+
+    numbers.sort()
+    return ",".join(str(num) for num in numbers)
 
 
 def _load_template_workbook(template_bytes: bytes, keep_vba: bool) -> Workbook:

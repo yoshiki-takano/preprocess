@@ -423,6 +423,66 @@ def test_template_export_appends_passthrough_columns_after_fixed_schema() -> Non
     assert row["Custom Score"] == "A+"
 
 
+def test_template_export_extracts_independent_claim_numbers_and_hides_raw_column() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "独立請求項": "請求項1. AAA\n請求項10. BBB\n請求項12. CCC",
+                "source_file": "sample.xlsx",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    assert "独立請求項" not in headers
+
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["独立請求項番号"] == "1,10,12"
+
+
+def test_template_export_prefers_existing_independent_claim_numbers() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "独立請求項番号": "3,7",
+                "独立請求項": "請求項1. AAA\n請求項10. BBB",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["独立請求項番号"] == "3,7"
+
+
 def test_non_template_export_keeps_passthrough_columns() -> None:
     selected = pd.DataFrame(
         [
