@@ -584,6 +584,39 @@ def test_template_export_excludes_first_claim_when_canceled_in_claims_english() 
     assert row["独立請求項番号"] == "3"
 
 
+def test_template_export_parses_pipe_prefixed_claims_and_excludes_dependent_claims() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "請求項（英語）": (
+                    "CLAIMS:\n"
+                    " | 1. A computer-implemented method comprising steps A and B.\n"
+                    " | 2. The method of claim 1, wherein step A uses model X.\n"
+                    " | 3. The method of claim 1, wherein step B uses model Y."
+                ),
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["独立請求項番号"] == "1"
+
+
 def test_non_template_export_keeps_passthrough_columns() -> None:
     selected = pd.DataFrame(
         [

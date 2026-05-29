@@ -374,7 +374,10 @@ def _extract_independent_claim_numbers_from_english_claims(text: str) -> object:
 
 
 def _parse_english_claim_pairs(text: str) -> list[tuple[int, str]]:
-    start_pattern = re.compile(r"(?:^|\n)\s*(\d+)\s*[\.)\]:]\s*", flags=re.IGNORECASE)
+    start_pattern = re.compile(
+        r"(?:^|\n)\s*(?:[|¦]\s*)?(?:claims?\s*)?(\d+)\s*[\.)\]:]\s*",
+        flags=re.IGNORECASE,
+    )
     matches = list(start_pattern.finditer(text))
     if not matches:
         return []
