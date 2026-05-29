@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import io
+import posixpath
 import re
+import zipfile
+import xml.etree.ElementTree as ET
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -37,6 +40,8 @@ HEADER_HINTS = {
     "dwpiファミリーメンバー有効/無効",
 }
 
+INTERNAL_PUBLICATION_URL_COLUMN = "__publication_hyperlink_url__"
+
 
 def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
     lower_name = file_name.lower()
@@ -50,7 +55,8 @@ def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
         raise ValueError("CSV encoding could not be decoded.")
     if lower_name.endswith(".xlsx") or lower_name.endswith(".xlsm"):
         raw_df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=None)
-        return _promote_detected_header(raw_df)
+        data_df, source_rows = _promote_detected_header_with_row_map(raw_df)
+        return _attach_publication_hyperlink_urls(data_df, source_rows, file_bytes)
     raise ValueError("Unsupported file type. Use .xlsx, .xlsm, or .csv")
 
 
@@ -91,7 +97,6 @@ def canonicalize_dataframe(
     for col in [
         "application_number",
         "publication_number",
-        "publication_url",
         "registration_number",
         "legal_status",
         "kind",
@@ -289,8 +294,13 @@ def _resolve_row_puab(row: pd.Series) -> str:
 
 
 def _promote_detected_header(raw_df: pd.DataFrame) -> pd.DataFrame:
+    data_df, _ = _promote_detected_header_with_row_map(raw_df)
+    return data_df
+
+
+def _promote_detected_header_with_row_map(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, list[int]]:
     if raw_df.empty:
-        return raw_df
+        return raw_df, []
 
     header_idx = _detect_header_row(raw_df)
     if header_idx is None:
@@ -299,10 +309,165 @@ def _promote_detected_header(raw_df: pd.DataFrame) -> pd.DataFrame:
     header_values = raw_df.iloc[header_idx].tolist()
     columns = _build_unique_columns(header_values)
 
-    data_df = raw_df.iloc[header_idx + 1 :].copy().reset_index(drop=True)
+    data_df = raw_df.iloc[header_idx + 1 :].copy()
     data_df.columns = columns
-    data_df = data_df.dropna(how="all").reset_index(drop=True)
-    return data_df
+    source_rows = [int(i) + 1 for i in data_df.index.tolist()]
+    non_empty_mask = ~data_df.isna().all(axis=1)
+    data_df = data_df.loc[non_empty_mask].reset_index(drop=True)
+    source_rows = [row for row, keep in zip(source_rows, non_empty_mask.tolist()) if keep]
+    return data_df, source_rows
+
+
+def _attach_publication_hyperlink_urls(
+    data_df: pd.DataFrame,
+    source_rows: list[int],
+    file_bytes: bytes,
+) -> pd.DataFrame:
+    if data_df.empty:
+        return data_df
+
+    publication_col_idx = _find_publication_number_column_index(data_df.columns)
+    if publication_col_idx is None:
+        return data_df
+
+    hyperlink_targets = _extract_first_sheet_hyperlinks(file_bytes)
+    if not hyperlink_targets:
+        return data_df
+
+    extracted_urls = [hyperlink_targets.get((row_number, publication_col_idx), "") for row_number in source_rows]
+    if not any(extracted_urls):
+        return data_df
+
+    out = data_df.copy()
+    if INTERNAL_PUBLICATION_URL_COLUMN in out.columns:
+        existing_values = out[INTERNAL_PUBLICATION_URL_COLUMN].fillna("").astype(str).map(_normalize_text)
+        out[INTERNAL_PUBLICATION_URL_COLUMN] = [
+            current if current else extracted
+            for current, extracted in zip(existing_values, extracted_urls)
+        ]
+    else:
+        out[INTERNAL_PUBLICATION_URL_COLUMN] = extracted_urls
+
+    return out
+
+
+def _find_publication_number_column_index(columns: pd.Index) -> int | None:
+    aliases = {_normalize_name(alias) for alias in CANONICAL_COLUMNS.get("publication_number", [])}
+    for idx, column in enumerate(columns, start=1):
+        if _normalize_name(column) in aliases:
+            return idx
+    return None
+
+
+def _extract_first_sheet_hyperlinks(file_bytes: bytes) -> dict[tuple[int, int], str]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            sheet_path = _resolve_first_sheet_path(archive)
+            if not sheet_path or sheet_path not in archive.namelist():
+                return {}
+
+            sheet_xml = ET.fromstring(archive.read(sheet_path))
+            ns = {
+                "m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+                "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            }
+            sheet_rels = _load_sheet_hyperlink_relationships(archive, sheet_path)
+            if not sheet_rels:
+                return {}
+
+            hyperlink_targets: dict[tuple[int, int], str] = {}
+            for hyperlink in sheet_xml.findall(".//m:hyperlinks/m:hyperlink", ns):
+                ref = hyperlink.attrib.get("ref", "")
+                rel_id = hyperlink.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+                if not ref or not rel_id:
+                    continue
+                target = sheet_rels.get(rel_id)
+                if not target:
+                    continue
+                row_number, col_number = _parse_cell_ref(ref.split(":", 1)[0])
+                if row_number is None or col_number is None:
+                    continue
+                hyperlink_targets[(row_number, col_number)] = target
+
+            return hyperlink_targets
+    except Exception:
+        return {}
+
+
+def _resolve_first_sheet_path(archive: zipfile.ZipFile) -> str | None:
+    workbook_path = "xl/workbook.xml"
+    workbook_rels_path = "xl/_rels/workbook.xml.rels"
+    if workbook_path not in archive.namelist() or workbook_rels_path not in archive.namelist():
+        return None
+
+    wb_ns = {
+        "m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    }
+    rel_ns = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
+
+    workbook_xml = ET.fromstring(archive.read(workbook_path))
+    sheets = workbook_xml.findall(".//m:sheets/m:sheet", wb_ns)
+    if not sheets:
+        return None
+
+    first_sheet_id = sheets[0].attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+    if not first_sheet_id:
+        return None
+
+    workbook_rels = ET.fromstring(archive.read(workbook_rels_path))
+    for rel in workbook_rels.findall("rel:Relationship", rel_ns):
+        if rel.attrib.get("Id") != first_sheet_id:
+            continue
+        target = rel.attrib.get("Target", "")
+        if not target:
+            return None
+        normalized_target = target.lstrip("/")
+        if normalized_target.startswith("xl/"):
+            return posixpath.normpath(normalized_target)
+        return posixpath.normpath(posixpath.join("xl", normalized_target))
+
+    return None
+
+
+def _load_sheet_hyperlink_relationships(
+    archive: zipfile.ZipFile,
+    sheet_path: str,
+) -> dict[str, str]:
+    rel_ns = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    rels_path = posixpath.join(
+        posixpath.dirname(sheet_path),
+        "_rels",
+        f"{posixpath.basename(sheet_path)}.rels",
+    )
+    if rels_path not in archive.namelist():
+        return {}
+
+    rels_xml = ET.fromstring(archive.read(rels_path))
+    out: dict[str, str] = {}
+    for rel in rels_xml.findall("rel:Relationship", rel_ns):
+        rel_type = rel.attrib.get("Type", "")
+        if not rel_type.endswith("/hyperlink"):
+            continue
+        rel_id = rel.attrib.get("Id")
+        target = rel.attrib.get("Target", "")
+        if rel_id and target:
+            out[rel_id] = target
+    return out
+
+
+def _parse_cell_ref(cell_ref: str) -> tuple[int | None, int | None]:
+    match = re.match(r"^([A-Za-z]+)(\d+)$", str(cell_ref).strip())
+    if not match:
+        return None, None
+
+    col_letters = match.group(1).upper()
+    row_number = int(match.group(2))
+    col_number = 0
+    for letter in col_letters:
+        col_number = col_number * 26 + (ord(letter) - ord("A") + 1)
+
+    return row_number, col_number
 
 
 def _detect_header_row(raw_df: pd.DataFrame) -> int | None:

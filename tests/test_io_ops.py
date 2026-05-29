@@ -11,7 +11,12 @@ from openpyxl import Workbook, load_workbook
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from patent_app.exporter import TEMPLATE_OUTPUT_COLUMNS, build_xlsx_bytes
-from patent_app.io_ops import canonicalize_dataframe, load_dataframe, resolve_column_mapping
+from patent_app.io_ops import (
+    INTERNAL_PUBLICATION_URL_COLUMN,
+    canonicalize_dataframe,
+    load_dataframe,
+    resolve_column_mapping,
+)
 
 
 def test_excel_header_is_detected_from_second_row() -> None:
@@ -36,6 +41,24 @@ def test_excel_header_is_detected_from_second_row() -> None:
         "出願番号",
     ]
     assert df.iloc[0]["公報番号"] == "JP8500001A"
+
+
+def test_load_dataframe_extracts_publication_url_from_hyperlink_cell() -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Patent Export, 2026-05-13 02:09:46 +0000", None, None])
+    ws.append(["公報番号", "出願番号", "出願日"])
+    ws.append(["JP8500001A", "JP1991508026A", "1991-04-11"])
+    ws["A3"].hyperlink = "https://example.com/patent/JP8500001A"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    df = load_dataframe("sample.xlsx", buf.getvalue())
+
+    assert "publication_url" not in df.columns
+    assert INTERNAL_PUBLICATION_URL_COLUMN in df.columns
+    assert df.iloc[0][INTERNAL_PUBLICATION_URL_COLUMN] == "https://example.com/patent/JP8500001A"
 
 
 def test_country_code_is_generated_from_publication_number() -> None:
@@ -661,7 +684,7 @@ def test_template_export_embeds_hyperlink_in_publication_number_cells() -> None:
             {
                 "selected_patent_number": "JP20240001A1",
                 "publication_number": "JP20240001A1",
-                "publication_url": "https://example.com/patent/JP20240001A1",
+                INTERNAL_PUBLICATION_URL_COLUMN: "https://example.com/patent/JP20240001A1",
             }
         ]
     )
@@ -698,7 +721,7 @@ def test_non_template_export_embeds_hyperlink_in_publication_number_cell() -> No
             {
                 "selected_patent_number": "JP20240001A1",
                 "publication_number": "JP20240001A1",
-                "publication_url": "https://example.com/p/JP20240001A1",
+                INTERNAL_PUBLICATION_URL_COLUMN: "https://example.com/p/JP20240001A1",
             }
         ]
     )
@@ -722,7 +745,7 @@ def test_non_template_export_skips_invalid_publication_url() -> None:
             {
                 "selected_patent_number": "JP20240001A1",
                 "publication_number": "JP20240001A1",
-                "publication_url": "www.example.com/no-scheme",
+                INTERNAL_PUBLICATION_URL_COLUMN: "www.example.com/no-scheme",
             }
         ]
     )

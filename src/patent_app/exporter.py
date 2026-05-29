@@ -10,9 +10,11 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+from .io_ops import INTERNAL_PUBLICATION_URL_COLUMN
+
 PUBLICATION_LINK_TARGET_COLUMNS = ("公報番号", "NUMBER")
 PUBLICATION_URL_SOURCE_COLUMNS = (
-    "publication_url",
+    INTERNAL_PUBLICATION_URL_COLUMN,
     "公報番号URL",
     "公報番号 URL",
     "公開番号URL",
@@ -28,6 +30,11 @@ PUBLICATION_URL_SOURCE_COLUMNS = (
     "NUMBER",
 )
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
+
+SUPPRESSED_OUTPUT_COLUMNS = {
+    INTERNAL_PUBLICATION_URL_COLUMN,
+    "publication_url",
+}
 
 OUTPUT_COLUMN_RENAME: dict[str, str] = {
     "country_code": "国名コード",
@@ -199,10 +206,14 @@ def build_xlsx_bytes(
         wb = Workbook()
 
     results_ws = _get_or_create_sheet(wb, "SearchData")
-    export_df = _build_template_output_dataframe(selected_df) if template_bytes else selected_df.rename(
-        columns=OUTPUT_COLUMN_RENAME
-    )
-    _write_dataframe(results_ws, export_df)
+    hyperlink_source_df = selected_df
+    if template_bytes:
+        export_df = _build_template_output_dataframe(selected_df)
+    else:
+        export_df = selected_df.drop(columns=list(SUPPRESSED_OUTPUT_COLUMNS), errors="ignore").rename(
+            columns=OUTPUT_COLUMN_RENAME
+        )
+    _write_dataframe(results_ws, export_df, hyperlink_source_df=hyperlink_source_df)
 
     if "NoAcc" in wb.sheetnames:
         del wb["NoAcc"]
@@ -222,15 +233,23 @@ def _get_or_create_sheet(wb: Workbook, title: str):
     return wb.create_sheet(title)
 
 
-def _write_dataframe(ws, df: pd.DataFrame) -> None:
+def _write_dataframe(ws, df: pd.DataFrame, hyperlink_source_df: pd.DataFrame | None = None) -> None:
     ws.delete_rows(1, ws.max_row)
     for row in dataframe_to_rows(df, index=False, header=True):
         ws.append(row)
-    _attach_publication_hyperlinks(ws, df)
+    _attach_publication_hyperlinks(ws, df, hyperlink_source_df=hyperlink_source_df)
 
 
-def _attach_publication_hyperlinks(ws, df: pd.DataFrame) -> None:
+def _attach_publication_hyperlinks(
+    ws,
+    df: pd.DataFrame,
+    hyperlink_source_df: pd.DataFrame | None = None,
+) -> None:
     if df.empty:
+        return
+
+    source_df = hyperlink_source_df if hyperlink_source_df is not None else df
+    if source_df.empty:
         return
 
     header_to_index = {str(cell.value): idx for idx, cell in enumerate(ws[1], start=1) if cell.value is not None}
@@ -238,7 +257,10 @@ def _attach_publication_hyperlinks(ws, df: pd.DataFrame) -> None:
     if not target_columns:
         return
 
-    for row_number, (_, row) in enumerate(df.iterrows(), start=2):
+    source_length = min(len(df), len(source_df))
+    for offset in range(source_length):
+        row_number = offset + 2
+        row = source_df.iloc[offset]
         url = _extract_publication_url_from_row(row)
         if not url:
             continue
@@ -325,6 +347,8 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
         if column in consumed_source_columns:
             continue
         if column in TEMPLATE_SUPPRESSED_PASSTHROUGH_COLUMNS:
+            continue
+        if column in SUPPRESSED_OUTPUT_COLUMNS:
             continue
         out[column] = selected_df[column].map(_normalize_export_text)
 
