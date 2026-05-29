@@ -102,6 +102,7 @@ TEMPLATE_OUTPUT_COLUMNS = [
 TEMPLATE_OUTPUT_SOURCE_MAP: dict[str, str | list[str]] = {
     "NUMBER": "selected_patent_number",
     "公報番号": "selected_patent_number",
+    "PDF コピー": ["PDF コピー", "PDFコピー"],
     "請求項数": ["請求項数", "claim_count", "number_of_claims", "claims_count"],
     "公報言語": "language_of_publication",
     "タイトル (英語)": ["title_english", "タイトル (英語)", "タイトル（英語）"],

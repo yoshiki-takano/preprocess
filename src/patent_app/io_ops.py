@@ -43,7 +43,6 @@ HEADER_HINTS = {
 }
 
 INTERNAL_PUBLICATION_URL_COLUMN = "__publication_hyperlink_url__"
-PDF_LINK_COLUMN = "PDFリンク"
 
 
 def load_dataframe(file_name: str, file_bytes: bytes) -> pd.DataFrame:
@@ -383,14 +382,12 @@ def _attach_pdf_copy_hyperlink_urls(
         return data_df
 
     out = data_df.copy()
-    if PDF_LINK_COLUMN in out.columns:
-        existing_values = out[PDF_LINK_COLUMN].fillna("").astype(str).map(_normalize_text)
-        out[PDF_LINK_COLUMN] = [
-            current if current else extracted
-            for current, extracted in zip(existing_values, extracted_urls)
-        ]
-    else:
-        out[PDF_LINK_COLUMN] = extracted_urls
+    pdf_copy_column_name = str(out.columns[pdf_copy_col_idx - 1])
+    existing_values = out[pdf_copy_column_name].fillna("").astype(str).map(_normalize_text)
+    out[pdf_copy_column_name] = [
+        current if current else extracted
+        for current, extracted in zip(existing_values, extracted_urls)
+    ]
     return out
 
 

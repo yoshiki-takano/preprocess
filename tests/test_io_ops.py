@@ -69,8 +69,8 @@ def test_load_dataframe_extracts_pdf_icon_hyperlinks_into_pdf_link_column() -> N
 
     df = load_dataframe(sample_path.name, sample_path.read_bytes())
 
-    assert "PDFリンク" in df.columns
-    non_empty_count = df["PDFリンク"].fillna("").astype(str).str.strip().ne("").sum()
+    assert "PDF コピー" in df.columns
+    non_empty_count = df["PDF コピー"].fillna("").astype(str).str.strip().ne("").sum()
     assert non_empty_count > 0
 
 
