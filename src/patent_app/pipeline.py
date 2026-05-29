@@ -10,6 +10,7 @@ from typing import Callable
 import pandas as pd
 
 from .config import EXCLUDE_KIND_TOKENS, EXCLUDE_STATUS_TOKENS, NO_ACC_TOKENS
+from .io_ops import INTERNAL_PUBLICATION_URL_COLUMN
 from .models import SelectionConfig
 
 ProgressCallback = Callable[[int, str], None]
@@ -1548,6 +1549,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             "その他ファミリ",
         ]:
             out[col] = ""
+        out[INTERNAL_PUBLICATION_URL_COLUMN] = ""
         return out
 
     (
@@ -1571,6 +1573,8 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     five_dead: list[str] = []
     family_other: list[str] = []
     source_files: list[str] = []
+    hyperlink_lookup = _build_patent_hyperlink_lookup(canonical_df)
+    hyperlink_urls: list[str] = []
 
     for _, row in out.iterrows():
         source_row = _resolve_source_row(row, patent_lookup, accession_app_lookup)
@@ -1594,6 +1598,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             five_dead.append("")
             family_other.append("")
             source_files.append(source_file_value)
+            hyperlink_urls.append(_resolve_selected_hyperlink_url(row, hyperlink_lookup))
             continue
 
         title_en.append(_as_text(source_row.get("title_english", "")))
@@ -1615,6 +1620,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
         five_dead.append(dead_text)
         family_other.append(other_text)
         source_files.append(source_file_value)
+        hyperlink_urls.append(_resolve_selected_hyperlink_url(row, hyperlink_lookup))
 
     out["タイトル（英語）"] = title_en
     out["タイトル - DWPI"] = title_dwpi
@@ -1629,7 +1635,35 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     out["五庁失効ファミリ"] = five_dead
     out["その他ファミリ"] = family_other
     out["source_file"] = source_files
+    out[INTERNAL_PUBLICATION_URL_COLUMN] = hyperlink_urls
     return out
+
+
+def _build_patent_hyperlink_lookup(canonical_df: pd.DataFrame) -> dict[str, str]:
+    if INTERNAL_PUBLICATION_URL_COLUMN not in canonical_df.columns:
+        return {}
+
+    out: dict[str, str] = {}
+    for row_dict in canonical_df.to_dict("records"):
+        url = _as_text(row_dict.get(INTERNAL_PUBLICATION_URL_COLUMN, ""))
+        if not url:
+            continue
+        for col in ("publication_number", "registration_number"):
+            patent_no = _as_text(row_dict.get(col, ""))
+            if patent_no and patent_no not in out:
+                out[patent_no] = url
+    return out
+
+
+def _resolve_selected_hyperlink_url(selected_row: pd.Series, hyperlink_lookup: dict[str, str]) -> str:
+    for col in ("selected_patent_number", "publication_number", "registration_number"):
+        patent_no = _as_text(selected_row.get(col, ""))
+        if not patent_no:
+            continue
+        url = hyperlink_lookup.get(patent_no, "")
+        if url:
+            return url
+    return ""
 
 
 def _build_source_row_lookup(

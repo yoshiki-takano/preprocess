@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from patent_app.models import SelectionConfig
 from patent_app.pipeline import run_selection_pipeline
+from patent_app.io_ops import INTERNAL_PUBLICATION_URL_COLUMN
 
 
 def _df() -> pd.DataFrame:
@@ -226,6 +227,51 @@ def test_pairs_publication_and_registration_by_application_number() -> None:
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "JP20240001A"
     assert selected.iloc[0]["registration_number"] == "JP7654321B2"
+
+
+def test_selected_registration_uses_registration_hyperlink_url() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP1",
+                "publication_number": "US20250299024A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2025-09-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "特許",
+                "accession_number": "DWX",
+                "family_id": "FX",
+                "country_code": "US",
+                INTERNAL_PUBLICATION_URL_COLUMN: "https://example.com/pub/US20250299024A1",
+            },
+            {
+                "application_number": "APP1",
+                "publication_number": "",
+                "registration_number": "US12619815B2",
+                "publication_date": pd.NaT,
+                "registration_date": pd.Timestamp("2026-03-01"),
+                "legal_status": "active",
+                "kind": "特許",
+                "accession_number": "DWX",
+                "family_id": "FX",
+                "country_code": "US",
+                INTERNAL_PUBLICATION_URL_COLUMN: "https://example.com/reg/US12619815B2",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["US"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "US12619815B2"
+    assert selected.iloc[0][INTERNAL_PUBLICATION_URL_COLUMN] == "https://example.com/reg/US12619815B2"
 
 
 def test_selected_column_order_starts_with_requested_fields() -> None:

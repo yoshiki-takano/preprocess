@@ -23,11 +23,6 @@ PUBLICATION_URL_SOURCE_COLUMNS = (
     "url",
     "Link",
     "link",
-    "selected_patent_number",
-    "publication_number",
-    "公報番号",
-    "公開番号",
-    "NUMBER",
 )
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
 
@@ -200,8 +195,6 @@ def build_xlsx_bytes(
     template_bytes: bytes | None = None,
     keep_vba: bool = False,
 ) -> bytes:
-    selected_df = _with_selected_patent_number_fallback(selected_df)
-
     if template_bytes:
         wb = _load_template_workbook(template_bytes, keep_vba)
     else:
@@ -227,23 +220,6 @@ def build_xlsx_bytes(
     wb.save(output)
     output.seek(0)
     return output.read()
-
-
-def _with_selected_patent_number_fallback(selected_df: pd.DataFrame) -> pd.DataFrame:
-    out = selected_df.copy()
-    index = out.index
-
-    selected_no = out.get("selected_patent_number", pd.Series("", index=index, dtype="object"))
-    publication_no = out.get("publication_number", pd.Series("", index=index, dtype="object"))
-    registration_no = out.get("registration_number", pd.Series("", index=index, dtype="object"))
-
-    selected_text = selected_no.fillna("").astype(str).str.strip()
-    publication_text = publication_no.fillna("").astype(str).str.strip()
-    registration_text = registration_no.fillna("").astype(str).str.strip()
-
-    fallback = publication_text.mask(publication_text.eq(""), registration_text)
-    out["selected_patent_number"] = selected_text.mask(selected_text.eq(""), fallback)
-    return out
 
 
 def _get_or_create_sheet(wb: Workbook, title: str):
