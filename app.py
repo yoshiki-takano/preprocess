@@ -221,6 +221,13 @@ if "use_basic_selection" not in st.session_state:
     st.session_state["use_basic_selection"] = False
 
 
+CACHE_SCHEMA_VERSION = "2026-05-29-nbspace-normalization-v1"
+
+
+if "cache_schema_version" not in st.session_state:
+    st.session_state["cache_schema_version"] = CACHE_SCHEMA_VERSION
+
+
 def _build_uploaded_files_key(files) -> tuple[tuple[str, int], ...] | None:
     if not files:
         return None
@@ -238,7 +245,7 @@ def _remove_basic_from_country_priority(groups: list[str]) -> list[str]:
 
 
 @st.cache_data(show_spinner=False)
-def _load_and_canonicalize_file(file_name: str, file_bytes: bytes) -> pd.DataFrame:
+def _load_and_canonicalize_file(file_name: str, file_bytes: bytes, cache_version: str) -> pd.DataFrame:
     raw_file_df = load_dataframe(file_name, file_bytes)
     file_columns = list(raw_file_df.columns)
     mapping = resolve_column_mapping(file_columns)
@@ -248,8 +255,11 @@ def _load_and_canonicalize_file(file_name: str, file_bytes: bytes) -> pd.DataFra
 
 
 @st.cache_data(show_spinner=False)
-def _build_preview_dataframe(file_payloads: tuple[tuple[str, bytes], ...]) -> pd.DataFrame:
-    canonical_preview_dfs = [_load_and_canonicalize_file(name, content) for name, content in file_payloads]
+def _build_preview_dataframe(file_payloads: tuple[tuple[str, bytes], ...], cache_version: str) -> pd.DataFrame:
+    canonical_preview_dfs = [
+        _load_and_canonicalize_file(name, content, cache_version)
+        for name, content in file_payloads
+    ]
     if not canonical_preview_dfs:
         return pd.DataFrame()
     return pd.concat(canonical_preview_dfs, ignore_index=True)
@@ -279,6 +289,13 @@ date_policy = col3.selectbox(
 )
 
 if uploaded_files:
+    if st.session_state.get("cache_schema_version") != CACHE_SCHEMA_VERSION:
+        st.session_state["uploaded_files_key"] = None
+        st.session_state["preview_df"] = None
+        st.session_state["preview_family_count"] = None
+        st.session_state["preview_no_acc_count"] = None
+        st.session_state["cache_schema_version"] = CACHE_SCHEMA_VERSION
+
     current_files_key = _build_uploaded_files_key(uploaded_files)
     if st.session_state["uploaded_files_key"] != current_files_key:
         st.session_state["uploaded_files_key"] = current_files_key
@@ -286,7 +303,7 @@ if uploaded_files:
         st.session_state["output_bytes"] = None
         st.session_state["result_error"] = None
         file_payloads = tuple((uploaded_file.name, uploaded_file.getvalue()) for uploaded_file in uploaded_files)
-        preview_df = _build_preview_dataframe(file_payloads)
+        preview_df = _build_preview_dataframe(file_payloads, CACHE_SCHEMA_VERSION)
         raw_family_count, raw_no_acc_count = _compute_family_no_acc_counts(preview_df)
         st.session_state["preview_df"] = preview_df
         st.session_state["preview_family_count"] = raw_family_count
