@@ -709,9 +709,8 @@ def test_template_export_embeds_hyperlink_in_publication_number_cells() -> None:
 
     assert number_cell.value == "JP20240001A1"
     assert koho_cell.value == "JP20240001A1"
-    assert number_cell.hyperlink is not None
+    assert number_cell.hyperlink is None
     assert koho_cell.hyperlink is not None
-    assert number_cell.hyperlink.target == "https://example.com/patent/JP20240001A1"
     assert koho_cell.hyperlink.target == "https://example.com/patent/JP20240001A1"
 
 

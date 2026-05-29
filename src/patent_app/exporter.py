@@ -12,7 +12,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 from .io_ops import INTERNAL_PUBLICATION_URL_COLUMN
 
-PUBLICATION_LINK_TARGET_COLUMNS = ("公報番号", "NUMBER")
+PUBLICATION_LINK_TARGET_COLUMNS = ("公報番号",)
 PUBLICATION_URL_SOURCE_COLUMNS = (
     INTERNAL_PUBLICATION_URL_COLUMN,
     "公報番号URL",
