@@ -483,6 +483,43 @@ def test_template_export_prefers_existing_independent_claim_numbers() -> None:
     assert row["独立請求項番号"] == "3,7"
 
 
+def test_template_export_independent_claim_numbers_fallback_per_row() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "独立請求項": "請求項2. AAA",
+                "請求項（英語）": "1. A method.\n2. The method of claim 1.",
+            },
+            {
+                "selected_patent_number": "JP20240002A1",
+                "publication_number": "JP20240002A1",
+                "独立請求項": "",
+                "請求項（英語）": "1. A device.\n2. The device of claim 1.",
+            },
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    row1 = dict(zip(headers, [cell.value for cell in result_ws[2]]))
+    row2 = dict(zip(headers, [cell.value for cell in result_ws[3]]))
+
+    assert row1["独立請求項番号"] == "2"
+    assert row2["独立請求項番号"] == "1"
+
+
 def test_template_export_extracts_independent_claim_numbers_from_claims_english() -> None:
     selected = pd.DataFrame(
         [

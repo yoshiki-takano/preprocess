@@ -221,6 +221,15 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         source_candidates = [source] if isinstance(source, str) else source
+        if column == "独立請求項番号":
+            present_candidates = [candidate for candidate in source_candidates if candidate in selected_df.columns]
+            if not present_candidates:
+                out[column] = [None] * row_count
+                continue
+            consumed_source_columns.update(present_candidates)
+            out[column] = _build_independent_claim_number_series(selected_df, present_candidates)
+            continue
+
         source_column = next((candidate for candidate in source_candidates if candidate in selected_df.columns), None)
         if source_column is None:
             out[column] = [None] * row_count
@@ -234,8 +243,6 @@ def _build_template_output_dataframe(selected_df: pd.DataFrame) -> pd.DataFrame:
             out[column] = pd.to_datetime(values, errors="coerce").dt.date
         elif column == "優先権主張日":
             out[column] = values.map(_normalize_priority_date_text)
-        elif column == "独立請求項番号":
-            out[column] = values.map(lambda value: _normalize_independent_claim_numbers(value, source_column))
         else:
             out[column] = values.map(_normalize_export_text)
 
@@ -292,6 +299,23 @@ def _normalize_independent_claim_numbers(value: object, source_column: str) -> o
         return _extract_independent_claim_numbers_from_english_claims(text)
 
     return _extract_claim_numbers_from_text(text)
+
+
+def _build_independent_claim_number_series(selected_df: pd.DataFrame, source_candidates: list[str]) -> pd.Series:
+    values: list[object] = []
+    for _, row in selected_df.iterrows():
+        picked: object = None
+        for candidate in source_candidates:
+            raw = row.get(candidate)
+            normalized = _normalize_independent_claim_numbers(raw, candidate)
+            if normalized is None:
+                continue
+            if str(normalized).strip() == "":
+                continue
+            picked = normalized
+            break
+        values.append(picked)
+    return pd.Series(values, index=selected_df.index)
 
 
 def _extract_claim_numbers_from_text(text: str) -> object:
