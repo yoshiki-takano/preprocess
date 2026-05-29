@@ -125,7 +125,12 @@ def canonicalize_dataframe(
 
     passthrough_columns = [col for col in df.columns if col not in mapped_source_columns and col not in out.columns]
     if passthrough_columns:
-        out = pd.concat([out, df[passthrough_columns].copy()], axis=1)
+        passthrough_df = df[passthrough_columns].copy()
+        for col in passthrough_df.columns:
+            series = passthrough_df[col]
+            if pd.api.types.is_string_dtype(series) or series.dtype == object:
+                passthrough_df[col] = series.map(lambda value: _normalize_text(value) if isinstance(value, str) else value)
+        out = pd.concat([out, passthrough_df], axis=1)
 
     return out
 
@@ -142,7 +147,11 @@ def _normalize_name(value: str) -> str:
 def _normalize_text(value: Any) -> str:
     if pd.isna(value):
         return ""
-    return str(value).strip()
+    text = str(value)
+    # Some vendor exports use non-breaking or narrow spaces that render as '?' in downstream tools.
+    # Normalize them at ingestion so text is consistently readable.
+    text = text.replace("\u00A0", " ").replace("\u2007", " ").replace("\u202F", " ")
+    return text.strip()
 
 
 def _extract_country_from_publication(pub_number: str) -> str:

@@ -67,6 +67,20 @@ def test_canonicalize_dataframe_keeps_non_canonical_columns() -> None:
     assert out.iloc[0]["明細 (英語)"] == "Detailed specification"
 
 
+def test_canonicalize_dataframe_normalizes_non_breaking_spaces() -> None:
+    source = pd.DataFrame(
+        {
+            "公報番号": ["JP20240001A1"],
+            "請求項（英語）": ["1. A\u00A0method\u00A0comprising."],
+        }
+    )
+
+    mapping = resolve_column_mapping(list(source.columns))
+    out = canonicalize_dataframe(source, mapping)
+
+    assert out.iloc[0]["請求項（英語）"] == "1. A method comprising."
+
+
 def test_publication_date_is_mapped_from_koho_hakkobi() -> None:
     source = pd.DataFrame(
         {
