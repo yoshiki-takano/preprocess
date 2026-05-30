@@ -412,6 +412,51 @@ def test_selected_registration_uses_registration_abstract_english() -> None:
     assert selected.iloc[0]["抄録（英語）"] == "Registration-side abstract text"
 
 
+def test_blank_value_is_filled_from_paired_counterpart_row() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP1",
+                "publication_number": "JP2023545994A",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2023-11-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "特許",
+                "accession_number": "DWX",
+                "family_id": "FX",
+                "country_code": "JP",
+                "請求項 (英語)": "Claim text from publication row",
+            },
+            {
+                "application_number": "APP1",
+                "publication_number": "",
+                "registration_number": "JP07807441B2",
+                "publication_date": pd.Timestamp("2026-01-27"),
+                "registration_date": pd.Timestamp("2026-01-27"),
+                "legal_status": "active",
+                "kind": "特許",
+                "accession_number": "DWX",
+                "family_id": "FX",
+                "country_code": "JP",
+                "請求項 (英語)": "",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "JP07807441B2"
+    assert selected.iloc[0]["請求項 (英語)"] == "Claim text from publication row"
+
+
 def test_selected_column_order_starts_with_requested_fields() -> None:
     cfg = SelectionConfig(
         mode="family",

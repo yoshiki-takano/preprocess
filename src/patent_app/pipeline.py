@@ -494,6 +494,7 @@ def _build_final_selected_dataframe(
     own_status = selected["legal_status"].fillna("").astype(str).str.strip()
     selected["legal_status"] = resolved_status.where(resolved_status.notna(), own_status)
     selected = _append_additional_output_columns(selected, canonical_df)
+    selected = _fill_blank_values_from_paired_rows(selected, canonical_df)
     selected = selected.drop(columns=SOURCE_HELPER_COLUMNS, errors="ignore")
     selected = _reorder_selected_columns(selected)
     return selected.reset_index(drop=True)
@@ -1968,3 +1969,104 @@ def _resolve_selected_legal_status(row: pd.Series, lookup: dict[str, str]) -> st
     if selected_no and selected_no in lookup:
         return lookup[selected_no]
     return str(row.get("legal_status", "") or "").strip()
+
+
+def _fill_blank_values_from_paired_rows(selected_df: pd.DataFrame, canonical_df: pd.DataFrame) -> pd.DataFrame:
+    if selected_df.empty or canonical_df.empty:
+        return selected_df
+
+    paired_rows_by_key: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
+    for row_dict in canonical_df.to_dict("records"):
+        accession = _as_text(row_dict.get("accession_number", ""))
+        app_no = _as_text(row_dict.get("application_number", ""))
+        if not accession and not app_no:
+            continue
+        paired_rows_by_key[(accession, app_no)].append(row_dict)
+
+    if not paired_rows_by_key:
+        return selected_df
+
+    out = selected_df.copy()
+    protected_columns = {
+        "selected_patent_number",
+        "publication_number",
+        "registration_number",
+    }
+
+    for idx, row in out.iterrows():
+        accession = _as_text(row.get("accession_number", ""))
+        app_no = _as_text(row.get("application_number", ""))
+        key = (accession, app_no)
+        candidates = paired_rows_by_key.get(key)
+        if not candidates:
+            continue
+
+        selected_no = _as_text(row.get("selected_patent_number", ""))
+        ordered_candidates = _order_candidates_by_selected_patent(candidates, selected_no)
+
+        for column in out.columns:
+            if column in protected_columns:
+                continue
+            current_value = out.at[idx, column]
+            if not _is_blank_like(current_value):
+                continue
+
+            backfill_columns = _candidate_backfill_columns(column)
+            replacement = _pick_first_non_blank_from_candidates(ordered_candidates, backfill_columns)
+            if _is_blank_like(replacement):
+                continue
+            out.at[idx, column] = replacement
+
+    return out
+
+
+def _order_candidates_by_selected_patent(
+    candidates: list[dict[str, object]],
+    selected_patent_no: str,
+) -> list[dict[str, object]]:
+    if not selected_patent_no:
+        return candidates
+
+    selected_matches: list[dict[str, object]] = []
+    others: list[dict[str, object]] = []
+    for row_dict in candidates:
+        pub_no = _as_text(row_dict.get("publication_number", ""))
+        reg_no = _as_text(row_dict.get("registration_number", ""))
+        if selected_patent_no == pub_no or selected_patent_no == reg_no:
+            selected_matches.append(row_dict)
+        else:
+            others.append(row_dict)
+    return selected_matches + others
+
+
+def _candidate_backfill_columns(column: str) -> tuple[str, ...]:
+    if column in {"抄録（英語）", "抄録 (英語)", "abstract_english"}:
+        return ("抄録（英語）", "抄録 (英語)", "abstract_english")
+    if column in {"PDF コピー", "PDFコピー"}:
+        return ("PDF コピー", "PDFコピー")
+    if column in {"フロントページ イメージ", "フロントページイメージ"}:
+        return ("フロントページ イメージ", "フロントページイメージ")
+    return (column,)
+
+
+def _pick_first_non_blank_from_candidates(
+    candidates: list[dict[str, object]],
+    columns: tuple[str, ...],
+) -> object:
+    for row_dict in candidates:
+        for column in columns:
+            value = row_dict.get(column)
+            if _is_blank_like(value):
+                continue
+            return value
+    return ""
+
+
+def _is_blank_like(value: object) -> bool:
+    if value is None:
+        return True
+    if pd.isna(value):
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False
