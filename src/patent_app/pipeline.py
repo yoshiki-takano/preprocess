@@ -1580,8 +1580,10 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     pdf_copy_values: list[str] = []
     front_image_lookup = _build_patent_column_lookup(canonical_df, ("フロントページ イメージ", "フロントページイメージ"))
     front_figure_lookup = _build_patent_column_lookup(canonical_df, ("フロントページ図",))
+    abstract_en_lookup = _build_patent_column_lookup(canonical_df, ("抄録（英語）", "抄録 (英語)", "abstract_english"))
     front_image_values: list[str] = []
     front_figure_values: list[str] = []
+    abstract_en_values: list[str] = []
 
     for _, row in out.iterrows():
         source_row = _resolve_source_row(row, patent_lookup, accession_app_lookup)
@@ -1609,6 +1611,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
             pdf_copy_values.append(_resolve_selected_pdf_copy_text(row, pdf_copy_lookup, None))
             front_image_values.append(_resolve_selected_column_text(row, front_image_lookup, None, ("フロントページ イメージ", "フロントページイメージ")))
             front_figure_values.append(_resolve_selected_column_text(row, front_figure_lookup, None, ("フロントページ図",)))
+            abstract_en_values.append(_resolve_selected_column_text(row, abstract_en_lookup, None, ("抄録（英語）", "抄録 (英語)", "abstract_english")))
             continue
 
         title_en.append(_as_text(source_row.get("title_english", "")))
@@ -1634,6 +1637,7 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
         pdf_copy_values.append(_resolve_selected_pdf_copy_text(row, pdf_copy_lookup, source_row))
         front_image_values.append(_resolve_selected_column_text(row, front_image_lookup, source_row, ("フロントページ イメージ", "フロントページイメージ")))
         front_figure_values.append(_resolve_selected_column_text(row, front_figure_lookup, source_row, ("フロントページ図",)))
+        abstract_en_values.append(_resolve_selected_column_text(row, abstract_en_lookup, source_row, ("抄録（英語）", "抄録 (英語)", "abstract_english")))
 
     out["タイトル（英語）"] = title_en
     out["タイトル - DWPI"] = title_dwpi
@@ -1646,6 +1650,9 @@ def _append_additional_output_columns(selected: pd.DataFrame, canonical_df: pd.D
     out["PDF コピー"] = pdf_copy_values
     out["フロントページ イメージ"] = front_image_values
     out["フロントページ図"] = front_figure_values
+    out["抄録（英語）"] = abstract_en_values
+    if "抄録 (英語)" in out.columns:
+        out["抄録 (英語)"] = abstract_en_values
     out["DWPI ファミリーメンバー"] = family_members
     out["五庁有効ファミリ"] = five_alive
     out["五庁失効ファミリ"] = five_dead
