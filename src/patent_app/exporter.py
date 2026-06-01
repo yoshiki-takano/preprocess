@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import copy
 import io
 import re
 import posixpath
@@ -25,6 +26,7 @@ PUBLICATION_URL_SOURCE_COLUMNS = (
     "link",
 )
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
+OUTPUT_FONT_NAME = "Yu Gothic"
 
 SUPPRESSED_OUTPUT_COLUMNS = {
     INTERNAL_PUBLICATION_URL_COLUMN,
@@ -236,6 +238,23 @@ def _write_dataframe(ws, df: pd.DataFrame, hyperlink_source_df: pd.DataFrame | N
     for row in dataframe_to_rows(df, index=False, header=True):
         ws.append(row)
     _attach_publication_hyperlinks(ws, df, hyperlink_source_df=hyperlink_source_df)
+    _apply_font_to_all_cells(ws, OUTPUT_FONT_NAME)
+
+
+def _apply_font_to_all_cells(ws, font_name: str) -> None:
+    if ws.max_row <= 0 or ws.max_column <= 0:
+        return
+
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        for cell in row:
+            base_font = cell.font
+            if base_font is None:
+                continue
+            if base_font.name == font_name:
+                continue
+            new_font = copy(base_font)
+            new_font.name = font_name
+            cell.font = new_font
 
 
 def _attach_publication_hyperlinks(
