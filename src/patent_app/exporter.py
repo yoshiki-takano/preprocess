@@ -27,6 +27,7 @@ PUBLICATION_URL_SOURCE_COLUMNS = (
 )
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
 OUTPUT_FONT_NAME = "Yu Gothic"
+OUTPUT_FONT_CHARSET = 128
 
 SUPPRESSED_OUTPUT_COLUMNS = {
     INTERNAL_PUBLICATION_URL_COLUMN,
@@ -254,6 +255,7 @@ def _apply_workbook_default_font(wb: Workbook, font_name: str) -> None:
             break
         new_font = copy(style.font)
         new_font.name = font_name
+        new_font.charset = OUTPUT_FONT_CHARSET
         style.font = new_font
         break
 
@@ -263,6 +265,7 @@ def _apply_workbook_default_font(wb: Workbook, font_name: str) -> None:
         if base_font is not None and base_font.name != font_name:
             new_font = copy(base_font)
             new_font.name = font_name
+            new_font.charset = OUTPUT_FONT_CHARSET
             fonts[0] = new_font
 
 
@@ -279,6 +282,7 @@ def _apply_font_to_all_cells(ws, font_name: str) -> None:
                 continue
             new_font = copy(base_font)
             new_font.name = font_name
+            new_font.charset = OUTPUT_FONT_CHARSET
             cell.font = new_font
 
 
