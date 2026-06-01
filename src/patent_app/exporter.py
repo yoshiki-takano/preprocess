@@ -256,6 +256,7 @@ def _apply_workbook_default_font(wb: Workbook, font_name: str) -> None:
         new_font = copy(style.font)
         new_font.name = font_name
         new_font.charset = OUTPUT_FONT_CHARSET
+        new_font.scheme = None
         style.font = new_font
         break
 
@@ -266,6 +267,7 @@ def _apply_workbook_default_font(wb: Workbook, font_name: str) -> None:
             new_font = copy(base_font)
             new_font.name = font_name
             new_font.charset = OUTPUT_FONT_CHARSET
+            new_font.scheme = None
             fonts[0] = new_font
 
 
@@ -283,6 +285,7 @@ def _apply_font_to_all_cells(ws, font_name: str) -> None:
             new_font = copy(base_font)
             new_font.name = font_name
             new_font.charset = OUTPUT_FONT_CHARSET
+            new_font.scheme = None
             cell.font = new_font
 
 
