@@ -40,7 +40,12 @@ uploaded_files = st.file_uploader(
     type=["xlsx", "xlsm", "csv"],
     accept_multiple_files=True,
 )
-template = st.file_uploader("出力テンプレート (.xlsx/.xlsm, 任意)", type=["xlsx", "xlsm"])
+output_format = st.selectbox(
+    "出力形式",
+    ["xlsm", "xlsx"],
+    index=0,
+    format_func=lambda x: "xlsm（Screener.xlsm テンプレート使用）" if x == "xlsm" else "xlsx（通常Excel）",
+)
 
 st.subheader("除外条件")
 ex1, ex2 = st.columns(2)
@@ -325,7 +330,7 @@ if uploaded_files:
         no_acc_count=raw_no_acc_count,
     )
 
-    template_is_xlsm = bool(template and template.name.lower().endswith(".xlsm"))
+    template_is_xlsm = output_format == "xlsm"
 
     run_clicked = st.button("抽出実行", type="primary")
     if run_clicked:
@@ -368,10 +373,19 @@ if uploaded_files:
                 ).reset_index(drop=True)
 
             progress.progress(95, text="ダウンロード用ファイルを作成しています...")
+            template_bytes = None
+            keep_vba = False
+            if template_is_xlsm:
+                template_path = Path(__file__).parent / "data" / "Screener.xlsm"
+                if not template_path.exists():
+                    raise FileNotFoundError(f"テンプレートが見つかりません: {template_path}")
+                template_bytes = template_path.read_bytes()
+                keep_vba = True
+
             output_bytes = build_xlsx_bytes(
                 selected_df,
-                template_bytes=template.getvalue() if template else None,
-                keep_vba=template_is_xlsm,
+                template_bytes=template_bytes,
+                keep_vba=keep_vba,
             )
             st.session_state["selected_df"] = selected_df
             st.session_state["output_bytes"] = output_bytes
