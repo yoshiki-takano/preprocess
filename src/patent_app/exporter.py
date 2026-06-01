@@ -205,6 +205,8 @@ def build_xlsx_bytes(
     else:
         wb = Workbook()
 
+    _apply_workbook_default_font(wb, OUTPUT_FONT_NAME)
+
     results_ws = _get_or_create_sheet(wb, "SearchData")
     hyperlink_source_df = selected_df
     if template_bytes:
@@ -239,6 +241,29 @@ def _write_dataframe(ws, df: pd.DataFrame, hyperlink_source_df: pd.DataFrame | N
         ws.append(row)
     _attach_publication_hyperlinks(ws, df, hyperlink_source_df=hyperlink_source_df)
     _apply_font_to_all_cells(ws, OUTPUT_FONT_NAME)
+
+
+def _apply_workbook_default_font(wb: Workbook, font_name: str) -> None:
+    named_styles = getattr(wb, "_named_styles", [])
+    for style in named_styles:
+        if getattr(style, "name", "") != "Normal":
+            continue
+        if getattr(style, "font", None) is None:
+            continue
+        if style.font.name == font_name:
+            break
+        new_font = copy(style.font)
+        new_font.name = font_name
+        style.font = new_font
+        break
+
+    fonts = getattr(wb, "_fonts", None)
+    if fonts and len(fonts) > 0:
+        base_font = fonts[0]
+        if base_font is not None and base_font.name != font_name:
+            new_font = copy(base_font)
+            new_font.name = font_name
+            fonts[0] = new_font
 
 
 def _apply_font_to_all_cells(ws, font_name: str) -> None:
