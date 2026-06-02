@@ -26,7 +26,7 @@ PUBLICATION_URL_SOURCE_COLUMNS = (
     "link",
 )
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
-OUTPUT_FONT_NAME = "Yu Gothic"
+OUTPUT_FONT_NAME = "Meiryo UI"
 OUTPUT_FONT_CHARSET = 128
 
 SUPPRESSED_OUTPUT_COLUMNS = {
