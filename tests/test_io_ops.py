@@ -62,6 +62,71 @@ def test_load_dataframe_extracts_publication_url_from_hyperlink_cell() -> None:
     assert df.iloc[0][INTERNAL_PUBLICATION_URL_COLUMN] == "https://example.com/patent/JP8500001A"
 
 
+def test_build_xlsx_bytes_writes_publication_and_application_dates_as_text() -> None:
+    source = pd.DataFrame(
+        [
+            {
+                "country_code": "TW",
+                "selected_patent_number": "TW202010",
+                "publication_number": "TW202010",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2021-05-21"),
+                "application_number": "APP1",
+                "application_date": pd.Timestamp("2020-02-12"),
+                "legal_status": "active",
+                "source_file": "sample.xlsx",
+                "language_of_publication": "EN",
+            }
+        ]
+    )
+
+    output = build_xlsx_bytes(source)
+    wb = load_workbook(io.BytesIO(output))
+    ws = wb["SearchData"]
+    headers = [cell.value for cell in ws[1]]
+
+    publication_cell = ws.cell(row=2, column=headers.index("公報発行日") + 1)
+    application_cell = ws.cell(row=2, column=headers.index("出願日") + 1)
+
+    assert publication_cell.value == "2021-05-21"
+    assert publication_cell.data_type == "s"
+    assert application_cell.value == "2020-02-12"
+    assert application_cell.data_type == "s"
+
+
+def test_build_xlsx_bytes_writes_template_dates_as_text() -> None:
+    source = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "TW202010",
+                "publication_date": pd.Timestamp("2021-05-21"),
+                "application_number": "APP1",
+                "application_date": pd.Timestamp("2020-02-12"),
+                "accession_number": "DW123",
+            }
+        ]
+    )
+    template_wb = Workbook()
+    template_ws = template_wb.active
+    template_ws.title = "SearchData"
+    template_ws.append(TEMPLATE_OUTPUT_COLUMNS)
+    template_buffer = io.BytesIO()
+    template_wb.save(template_buffer)
+
+    output = build_xlsx_bytes(source, template_bytes=template_buffer.getvalue())
+    wb = load_workbook(io.BytesIO(output))
+    ws = wb["SearchData"]
+    headers = [cell.value for cell in ws[1]]
+
+    publication_cell = ws.cell(row=2, column=headers.index("公報発行日") + 1)
+    application_cell = ws.cell(row=2, column=headers.index("出願日") + 1)
+
+    assert publication_cell.value == "2021-05-21"
+    assert publication_cell.data_type == "s"
+    assert application_cell.value == "2020-02-12"
+    assert application_cell.data_type == "s"
+
+
 def test_load_dataframe_extracts_pdf_icon_hyperlinks_into_pdf_link_column() -> None:
     sample_path = Path(__file__).resolve().parents[1] / "data" / "anthropic.xlsx"
     if not sample_path.exists():

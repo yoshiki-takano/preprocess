@@ -217,6 +217,7 @@ def build_xlsx_bytes(
         export_df = selected_df.drop(columns=list(SUPPRESSED_OUTPUT_COLUMNS), errors="ignore").rename(
             columns=OUTPUT_COLUMN_RENAME
         )
+    export_df = _coerce_text_output_dates(export_df)
     _write_dataframe(results_ws, export_df, hyperlink_source_df=hyperlink_source_df)
 
     if "NoAcc" in wb.sheetnames:
@@ -243,6 +244,17 @@ def _write_dataframe(ws, df: pd.DataFrame, hyperlink_source_df: pd.DataFrame | N
         ws.append(row)
     _attach_publication_hyperlinks(ws, df, hyperlink_source_df=hyperlink_source_df)
     _apply_font_to_all_cells(ws, OUTPUT_FONT_NAME, OUTPUT_FONT_SIZE)
+
+
+def _coerce_text_output_dates(df: pd.DataFrame) -> pd.DataFrame:
+    date_columns = [column for column in ("公報発行日", "出願日") if column in df.columns]
+    if not date_columns:
+        return df
+
+    out = df.copy()
+    for column in date_columns:
+        out[column] = out[column].map(_normalize_priority_date_text)
+    return out
 
 
 def _apply_workbook_default_font(wb: Workbook, font_name: str, font_size: int) -> None:
