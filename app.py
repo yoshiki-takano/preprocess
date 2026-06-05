@@ -34,6 +34,8 @@ if start_month == 13:
     start_month = 1
     start_year += 1
 default_start_date = date(start_year, start_month, 1)
+date_input_min = date(1950, 1, 1)
+date_input_max = date.today()
 
 uploaded_files = st.file_uploader(
     "入力ファイル (.xlsx)",
@@ -62,7 +64,13 @@ with st.expander("開始日条件の設定", expanded=enable_start_date):
         format_func=lambda x: "公開日" if x == "publication_date" else "出願日",
         disabled=not enable_start_date,
     )
-    start_date_value = date_start_col2.date_input("開始日", value=default_start_date, disabled=not enable_start_date)
+    start_date_value = date_start_col2.date_input(
+        "開始日",
+        value=default_start_date,
+        min_value=date_input_min,
+        max_value=date_input_max,
+        disabled=not enable_start_date,
+    )
 
 enable_end_date = st.checkbox("終了日で除外", value=False)
 with st.expander("終了日条件の設定", expanded=enable_end_date):
@@ -73,7 +81,13 @@ with st.expander("終了日条件の設定", expanded=enable_end_date):
         format_func=lambda x: "公開日" if x == "publication_date" else "出願日",
         disabled=not enable_end_date,
     )
-    end_date_value = date_end_col2.date_input("終了日", value=default_end_date, disabled=not enable_end_date)
+    end_date_value = date_end_col2.date_input(
+        "終了日",
+        value=default_end_date,
+        min_value=date_input_min,
+        max_value=date_input_max,
+        disabled=not enable_end_date,
+    )
 
 st.subheader("選択条件")
 treat_wo_republication_as_jp = st.checkbox("再公表(元WO)をJPとして扱う", value=True)
