@@ -23,8 +23,8 @@ from patent_app.models import SelectionConfig
 from patent_app.pipeline import run_selection_pipeline
 
 st.set_page_config(page_title="Patent Extractor", layout="wide")
-st.title("特許データ抽出アプリ (MVP)")
-st.caption("Excel/CSVを読み込み、業務ルールで調査対象を抽出します。")
+st.title("特許データ抽出アプリ")
+st.caption("Excelを読み込み、業務ルールで調査対象を抽出します。")
 
 first_day_this_month = date.today().replace(day=1)
 default_end_date = first_day_this_month - timedelta(days=1)
@@ -36,8 +36,8 @@ if start_month == 13:
 default_start_date = date(start_year, start_month, 1)
 
 uploaded_files = st.file_uploader(
-    "入力ファイル (.xlsx/.xlsm/.csv)",
-    type=["xlsx", "xlsm", "csv"],
+    "入力ファイル (.xlsx)",
+    type=["xlsx"],
     accept_multiple_files=True,
 )
 output_format = st.selectbox(
