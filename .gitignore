@@ -36,3 +36,4 @@ data/*.xls
 data/*.csv
 data/*.dno
 data/*.txt
+!data/Screener.xlsm
