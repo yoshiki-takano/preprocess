@@ -23,7 +23,7 @@ from patent_app.models import SelectionConfig
 from patent_app.pipeline import run_selection_pipeline
 
 st.set_page_config(page_title="Patent Extractor", layout="wide")
-st.title("特許データ抽出アプリ")
+st.title("母集団処理アプリ")
 st.caption("Excelを読み込み、業務ルールで調査対象を抽出します。")
 
 first_day_this_month = date.today().replace(day=1)
