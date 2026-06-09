@@ -20,6 +20,7 @@ from patent_app.io_ops import (
 )
 from patent_app.config import NO_ACC_TOKENS
 from patent_app.models import SelectionConfig
+from patent_app.memo import annotate_no_acc_family_possibility_memo
 from patent_app.pipeline import run_selection_pipeline
 
 st.set_page_config(page_title="Patent Extractor", layout="wide")
@@ -396,8 +397,12 @@ if uploaded_files:
                 template_bytes = template_path.read_bytes()
                 keep_vba = True
 
+            export_selected_df = selected_df
+            if template_is_xlsm:
+                export_selected_df = annotate_no_acc_family_possibility_memo(selected_df, canonical_df)
+
             output_bytes = build_xlsx_bytes(
-                selected_df,
+                export_selected_df,
                 template_bytes=template_bytes,
                 keep_vba=keep_vba,
             )
