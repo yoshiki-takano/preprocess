@@ -50,6 +50,18 @@ output_format = st.selectbox(
     format_func=lambda x: "xlsm（Screener.xlsm テンプレート使用）" if x == "xlsm" else "xlsx（通常Excel）",
 )
 
+xlsx_compat_mode = False
+if output_format == "xlsm":
+    st.caption(
+        "注意: Screener の左端アイコン(HTML作成)はテンプレートVBAの保存先依存により、"
+        "OneDrive外フォルダで実行時エラー 76 になる場合があります。"
+    )
+    xlsx_compat_mode = st.checkbox(
+        "互換モードで出力（.xlsx、アイコンエラー回避）",
+        value=False,
+        help="テンプレートマクロを使わず通常Excelで出力します。",
+    )
+
 st.subheader("除外条件")
 ex1, ex2 = st.columns(2)
 exclude_invalid = ex1.checkbox("失効を除外", value=False)
@@ -345,7 +357,7 @@ if uploaded_files:
         no_acc_count=raw_no_acc_count,
     )
 
-    template_is_xlsm = output_format == "xlsm"
+    template_is_xlsm = output_format == "xlsm" and not xlsx_compat_mode
 
     run_clicked = st.button("抽出実行", type="primary")
     if run_clicked:
