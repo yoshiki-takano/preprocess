@@ -20,7 +20,6 @@ from patent_app.io_ops import (
 )
 from patent_app.config import NO_ACC_TOKENS
 from patent_app.models import SelectionConfig
-from patent_app.memo import annotate_no_acc_family_possibility_memo
 from patent_app.pipeline import run_selection_pipeline
 
 st.set_page_config(page_title="Patent Extractor", layout="wide")
@@ -49,18 +48,6 @@ output_format = st.selectbox(
     index=0,
     format_func=lambda x: "xlsm（Screener.xlsm テンプレート使用）" if x == "xlsm" else "xlsx（通常Excel）",
 )
-
-xlsx_compat_mode = False
-if output_format == "xlsm":
-    st.caption(
-        "注意: Screener の左端アイコン(HTML作成)はテンプレートVBAの保存先依存により、"
-        "OneDrive外フォルダで実行時エラー 76 になる場合があります。"
-    )
-    xlsx_compat_mode = st.checkbox(
-        "互換モードで出力（.xlsx、アイコンエラー回避）",
-        value=False,
-        help="テンプレートマクロを使わず通常Excelで出力します。",
-    )
 
 st.subheader("除外条件")
 ex1, ex2 = st.columns(2)
@@ -357,7 +344,7 @@ if uploaded_files:
         no_acc_count=raw_no_acc_count,
     )
 
-    template_is_xlsm = output_format == "xlsm" and not xlsx_compat_mode
+    template_is_xlsm = output_format == "xlsm"
 
     run_clicked = st.button("抽出実行", type="primary")
     if run_clicked:
@@ -409,12 +396,8 @@ if uploaded_files:
                 template_bytes = template_path.read_bytes()
                 keep_vba = True
 
-            export_selected_df = selected_df
-            if template_is_xlsm:
-                export_selected_df = annotate_no_acc_family_possibility_memo(selected_df, canonical_df)
-
             output_bytes = build_xlsx_bytes(
-                export_selected_df,
+                selected_df,
                 template_bytes=template_bytes,
                 keep_vba=keep_vba,
             )

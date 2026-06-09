@@ -413,9 +413,9 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert row["抄録 - DWPI 用途"] == "DWPI use"
     assert row["請求項 (英語)"] == "English claims"
     assert row["DWPI アクセッション番号"] == "ACC-001"
-    assert row["公報発行日"] == "2024-02-01"
+    assert row["公報発行日"].date() == date(2024, 2, 1)
     assert row["出願番号"] == "JP20230001"
-    assert row["出願日"] == "2023-01-15"
+    assert row["出願日"].date() == date(2023, 1, 15)
     assert row["優先権主張番号"] == "PRIO-1"
     assert row["優先権主張日"] == "2022-12-01 | 2023-01-10"
     assert row["優先権情報"] == "PRIO-1(2022-12-01)"
