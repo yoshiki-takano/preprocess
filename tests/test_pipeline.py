@@ -548,6 +548,50 @@ def test_no_acc_token_rows_are_not_collapsed_into_single_family() -> None:
     assert set(selected["application_number"].tolist()) == {"APP_A", "APP_B"}
 
 
+def test_no_accession_row_gets_family_hint_memo1_when_kind_only_differs() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_NOACC",
+                "application_date": pd.Timestamp("2024-01-10"),
+                "publication_number": "JP20240001A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "",
+                "family_id": "F_NOACC",
+                "country_code": "JP",
+            },
+            {
+                "application_number": "APP_WITH_ACC",
+                "application_date": pd.Timestamp("2024-01-11"),
+                "publication_number": "JP20240001B2",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-02"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "B2",
+                "accession_number": "ACC-123",
+                "family_id": "F_WITH_ACC",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    no_acc_row = selected.loc[selected["application_number"] == "APP_NOACC"].iloc[0]
+    assert no_acc_row["MEMO1"] == "ACC-123 のファミリの可能性あり"
+
+
 def test_empty_family_id_rows_with_same_application_number_are_one_family() -> None:
     df = pd.DataFrame(
         [

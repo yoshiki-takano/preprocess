@@ -495,9 +495,114 @@ def _build_final_selected_dataframe(
     selected["legal_status"] = resolved_status.where(resolved_status.notna(), own_status)
     selected = _append_additional_output_columns(selected, canonical_df)
     selected = _fill_blank_values_from_paired_rows(selected, canonical_df)
+    selected = _annotate_possible_family_for_missing_accession(selected, canonical_df)
     selected = selected.drop(columns=SOURCE_HELPER_COLUMNS, errors="ignore")
     selected = _reorder_selected_columns(selected)
     return selected.reset_index(drop=True)
+
+
+def _annotate_possible_family_for_missing_accession(selected: pd.DataFrame, canonical_df: pd.DataFrame) -> pd.DataFrame:
+    if selected.empty or canonical_df.empty:
+        return selected
+
+    out = selected.copy()
+    if "MEMO1" not in out.columns:
+        out["MEMO1"] = ""
+
+    acc_candidates = _build_country_numeric_accession_candidates(canonical_df)
+    if not acc_candidates:
+        return out
+
+    accession_series = out["accession_number"].fillna("").astype(str).str.strip().str.lower()
+    missing_accession_mask = accession_series.isin(NO_ACC_TOKENS)
+    if not missing_accession_mask.any():
+        return out
+
+    for idx in out.index[missing_accession_mask]:
+        candidate_accession = _find_accession_candidate_for_row(out.loc[idx], acc_candidates)
+        if not candidate_accession:
+            continue
+        note = f"{candidate_accession} のファミリの可能性あり"
+        existing = str(out.at[idx, "MEMO1"] or "").strip()
+        if not existing:
+            out.at[idx, "MEMO1"] = note
+            continue
+        if note not in existing:
+            out.at[idx, "MEMO1"] = f"{existing} / {note}"
+
+    return out
+
+
+def _build_country_numeric_accession_candidates(canonical_df: pd.DataFrame) -> dict[tuple[str, str], list[tuple[str, str]]]:
+    candidates: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
+
+    for row in canonical_df.to_dict("records"):
+        accession = str(row.get("accession_number", "") or "").strip()
+        if not accession or accession.lower() in NO_ACC_TOKENS:
+            continue
+
+        patent_numbers: list[str] = []
+        publication = str(row.get("publication_number", "") or "").strip()
+        registration = str(row.get("registration_number", "") or "").strip()
+        if publication:
+            patent_numbers.append(publication)
+        if registration and registration != publication:
+            patent_numbers.append(registration)
+
+        for patent_no in patent_numbers:
+            country, numeric_body, kind_code = _extract_country_numeric_kind_parts(patent_no)
+            if not country or not numeric_body:
+                continue
+            entry = (kind_code, accession)
+            bucket = candidates[(country, numeric_body)]
+            if entry not in bucket:
+                bucket.append(entry)
+
+    return candidates
+
+
+def _find_accession_candidate_for_row(
+    row: pd.Series,
+    candidates: dict[tuple[str, str], list[tuple[str, str]]],
+) -> str:
+    patent_numbers: list[str] = []
+    for column in ("selected_patent_number", "publication_number", "registration_number"):
+        patent_no = str(row.get(column, "") or "").strip()
+        if patent_no and patent_no not in patent_numbers:
+            patent_numbers.append(patent_no)
+
+    for patent_no in patent_numbers:
+        country, numeric_body, own_kind = _extract_country_numeric_kind_parts(patent_no)
+        if not country or not numeric_body:
+            continue
+
+        for kind_code, accession in candidates.get((country, numeric_body), []):
+            if accession and (not own_kind or kind_code != own_kind):
+                return accession
+
+    return ""
+
+
+def _extract_country_numeric_kind_parts(value: object) -> tuple[str, str, str]:
+    normalized = _normalize_publication_number(value)
+    if not normalized:
+        return "", "", ""
+
+    country_match = re.match(r"^([A-Z]{2})", normalized)
+    country = country_match.group(1) if country_match else ""
+    kind_code = ""
+
+    suffix_match = re.search(r"([A-Z]{1,2}\d{0,2})$", normalized)
+    body = normalized
+    if suffix_match:
+        kind_code = suffix_match.group(1)
+        body = normalized[: -len(kind_code)]
+
+    if country and body.startswith(country):
+        body = body[len(country) :]
+
+    numeric_body = "".join(re.findall(r"\d", body))
+    return country, numeric_body, kind_code
 
 
 def _build_final_no_acc_dataframe(no_acc_df: pd.DataFrame) -> pd.DataFrame:

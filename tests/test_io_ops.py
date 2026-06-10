@@ -433,6 +433,34 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert row["PDF コピー"] is None
 
 
+def test_template_export_populates_memo1_from_selected_dataframe() -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "selected_patent_number": "JP20240001A1",
+                "publication_number": "JP20240001A1",
+                "MEMO1": "ACC-001 のファミリの可能性あり",
+            }
+        ]
+    )
+
+    template_buffer = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SearchData"
+    ws.append(["placeholder"])
+    wb.save(template_buffer)
+
+    output_bytes = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    result_wb = load_workbook(io.BytesIO(output_bytes))
+    result_ws = result_wb["SearchData"]
+
+    headers = [cell.value for cell in result_ws[1]]
+    values = [cell.value for cell in result_ws[2]]
+    row = dict(zip(headers, values))
+    assert row["MEMO1"] == "ACC-001 のファミリの可能性あり"
+
+
 def test_template_export_falls_back_to_applicant_rights_column() -> None:
     selected = pd.DataFrame(
         [
