@@ -218,6 +218,16 @@ def _detect_output_extension(output_bytes: bytes, template_is_xlsm: bool) -> str
         return "xlsx"
 
 
+def _format_output_dates_as_text(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for column in ("publication_date", "application_date"):
+        if column not in out.columns:
+            continue
+        values = pd.to_datetime(out[column], errors="coerce")
+        out[column] = values.dt.strftime("%Y-%m-%d").where(values.notna(), "")
+    return out
+
+
 if "priority_basis" not in st.session_state:
     st.session_state["priority_basis"] = "registration"
 if "date_policy" not in st.session_state:
@@ -385,6 +395,7 @@ if uploaded_files:
                     na_position="last",
                     kind="stable",
                 ).reset_index(drop=True)
+            selected_df = _format_output_dates_as_text(selected_df)
 
             progress.progress(95, text="ダウンロード用ファイルを作成しています...")
             template_bytes = None
