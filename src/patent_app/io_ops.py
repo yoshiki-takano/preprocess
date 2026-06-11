@@ -43,6 +43,7 @@ HEADER_HINTS = {
 }
 
 INTERNAL_PUBLICATION_URL_COLUMN = "__publication_hyperlink_url__"
+INTERNAL_RAW_PUBLICATION_COLUMN = "__raw_publication_number__"
 FRONT_PAGE_IMAGE_ALIASES = (
     "フロントページ イメージ",
     "フロントページイメージ",
@@ -132,6 +133,7 @@ def canonicalize_dataframe(
 
     out["application_date"] = pd.to_datetime(out["application_date"], errors="coerce").dt.date
     out["publication_date"] = pd.to_datetime(out["publication_date"], errors="coerce").dt.date
+    out[INTERNAL_RAW_PUBLICATION_COLUMN] = out["publication_number"]
 
     out["family_id"] = out["family_id"].mask(
         out["family_id"].isna() | (out["family_id"] == ""), out["accession_number"]

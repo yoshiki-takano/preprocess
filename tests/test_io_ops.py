@@ -13,6 +13,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from patent_app.exporter import TEMPLATE_OUTPUT_COLUMNS, build_xlsx_bytes
 from patent_app.io_ops import (
+    INTERNAL_RAW_PUBLICATION_COLUMN,
     INTERNAL_PUBLICATION_URL_COLUMN,
     canonicalize_dataframe,
     load_dataframe,
@@ -286,6 +287,22 @@ def test_kind_code_routes_registration_from_publication_column() -> None:
     mapping = resolve_column_mapping(list(source.columns))
     out = canonicalize_dataframe(source, mapping)
 
+    assert out.iloc[0]["publication_number"] == ""
+    assert out.iloc[0]["registration_number"] == "JP6000001B2"
+
+
+def test_canonicalize_keeps_raw_publication_before_kind_routing() -> None:
+    source = pd.DataFrame(
+        {
+            "公報番号": ["JP6000001B2"],
+            "出願番号": ["JP1984258790A"],
+        }
+    )
+
+    mapping = resolve_column_mapping(list(source.columns))
+    out = canonicalize_dataframe(source, mapping)
+
+    assert out.iloc[0][INTERNAL_RAW_PUBLICATION_COLUMN] == "JP6000001B2"
     assert out.iloc[0]["publication_number"] == ""
     assert out.iloc[0]["registration_number"] == "JP6000001B2"
 

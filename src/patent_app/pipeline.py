@@ -10,7 +10,7 @@ from typing import Callable
 import pandas as pd
 
 from .config import EXCLUDE_KIND_TOKENS, EXCLUDE_STATUS_TOKENS, NO_ACC_TOKENS
-from .io_ops import INTERNAL_PUBLICATION_URL_COLUMN
+from .io_ops import INTERNAL_PUBLICATION_URL_COLUMN, INTERNAL_RAW_PUBLICATION_COLUMN
 from .models import SelectionConfig
 
 ProgressCallback = Callable[[int, str], None]
@@ -103,6 +103,7 @@ SELECTED_HELPER_DROP_COLUMNS = [
     "_rank_application_number_numeric",
     "_country_matches_selected",
     "_original_publication_number",
+    INTERNAL_RAW_PUBLICATION_COLUMN,
     "_pub_base",
     "_pub_revision",
     "_pub_raw",
@@ -475,11 +476,14 @@ def _build_final_selected_dataframe(
     patent_application_date_lookup: dict[str, object],
     patent_date_lookup: dict[str, object],
 ) -> pd.DataFrame:
-    selected = pd.DataFrame(selected_rows).drop(columns=SELECTED_HELPER_DROP_COLUMNS, errors="ignore")
+    selected_pre_drop = pd.DataFrame(selected_rows)
+    # For Basic selection, capture the raw publication value before dropping helper columns
     if config.use_basic_selection:
-        pub_no = selected["publication_number"].fillna("").astype(str).str.strip()
-        reg_no = selected["registration_number"].fillna("").astype(str).str.strip()
-        selected["selected_patent_number"] = pub_no.mask(pub_no.eq(""), reg_no)
+        orig_pub_values = selected_pre_drop["_original_publication_number"].fillna("").astype(str).str.strip()
+    
+    selected = selected_pre_drop.drop(columns=SELECTED_HELPER_DROP_COLUMNS, errors="ignore")
+    if config.use_basic_selection:
+        selected["selected_patent_number"] = orig_pub_values.values
     else:
         selected["selected_patent_number"] = _resolve_selected_patent_number_series(
             selected,
@@ -725,7 +729,10 @@ def _pair_publication_registration_by_application(df: pd.DataFrame) -> pd.DataFr
 
     out = df.copy()
     # Preserve the original publication number so Basic matching can reference pre-pair values.
-    out["_original_publication_number"] = out["publication_number"]
+    if INTERNAL_RAW_PUBLICATION_COLUMN in out.columns:
+        out["_original_publication_number"] = out[INTERNAL_RAW_PUBLICATION_COLUMN]
+    else:
+        out["_original_publication_number"] = out["publication_number"]
     match_keys = _build_pairing_match_keys(out)
     if "_pairing_key_override" in out.columns:
         override = out["_pairing_key_override"].fillna("").astype(str).str.strip()
