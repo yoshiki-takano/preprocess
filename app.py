@@ -93,7 +93,7 @@ st.subheader("選択条件")
 treat_wo_republication_as_jp = st.checkbox("再公表(元WO)をJPとして扱う", value=True)
 treat_wo_prior_republication_as_jp = st.checkbox("先行再公表(WO)をJPとして扱う", value=True)
 country_priority_raw = st.text_input(
-    "国優先順位 (カンマ区切り)",
+    "国優先順位 (カンマ区切り。並列で調査したいときは=を使う。例: JP,US=EP=WO,CN,KR)",
     value="JP,US,EP,WO,CN,KR",
     disabled=st.session_state.get("use_basic_selection", False),
 )
