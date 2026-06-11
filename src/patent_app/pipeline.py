@@ -865,7 +865,8 @@ def _apply_wo_republication_as_jp(
     if not repub_mask.any():
         return out, repub_mask
 
-    # R behavior: supplement publication_date/application_number from JP X by accession_number + application_date.
+    # Supplement application_number from JP X by accession_number + application_date
+    # for pairing, but keep publication_date as the selected publication's own date.
     jpx_mask = country.eq("JP") & kind.eq("X")
     if jpx_mask.any():
         jpx_lookup = (
@@ -883,10 +884,6 @@ def _apply_wo_republication_as_jp(
         targets = out.loc[repub_mask, ["accession_number", "application_date"]].copy()
         targets["_row_index"] = targets.index
         merged = targets.merge(jpx_lookup, on=["accession_number", "application_date"], how="left").set_index("_row_index")
-
-        has_pub = merged["publication_date_jpx"].notna()
-        if has_pub.any():
-            out.loc[merged.index[has_pub], "publication_date"] = merged.loc[has_pub, "publication_date_jpx"]
 
         has_app = merged["application_number_jpx"].fillna("").astype(str).str.strip().ne("")
         if has_app.any():

@@ -792,7 +792,7 @@ def test_republish_wo_can_be_treated_as_jp_and_complemented_from_jpx() -> None:
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "WO1989000044A1"
     assert selected.iloc[0]["application_number"] == "APP_FROM_JPX_OLD"
-    assert pd.to_datetime(selected.iloc[0]["publication_date"]).date() == date(2018, 1, 1)
+    assert pd.to_datetime(selected.iloc[0]["publication_date"]).date() == date(2019, 1, 1)
 
 
 def test_republish_wo_can_pair_with_jp_registration_on_registration_priority() -> None:
@@ -1560,6 +1560,99 @@ def test_publication_date_is_resolved_from_selected_patent_number() -> None:
     assert len(selected) == 1
     assert selected.iloc[0]["selected_patent_number"] == "JP07524160B2"
     assert pd.to_datetime(selected.iloc[0]["publication_date"]) == pd.Timestamp("2024-07-29")
+
+
+def test_publication_date_falls_back_to_selected_patent_when_publication_number_missing() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_REG_ONLY",
+                "application_date": pd.Timestamp("2021-01-01"),
+                "publication_number": "",
+                "registration_number": "JP07000001B2",
+                "publication_date": pd.Timestamp("2023-03-10"),
+                "registration_date": pd.Timestamp("2023-03-10"),
+                "legal_status": "active",
+                "kind": "B2",
+                "accession_number": "ACC_REG_ONLY",
+                "family_id": "F_REG_ONLY",
+                "country_code": "JP",
+            }
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="application",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "JP07000001B2"
+    assert selected.iloc[0]["publication_number"] == ""
+    assert pd.to_datetime(selected.iloc[0]["publication_date"]) == pd.Timestamp("2023-03-10")
+
+
+def test_basic_republish_uses_selected_patent_publication_date() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "WO2018JP16216A",
+                "application_date": pd.Timestamp("2018-04-19"),
+                "publication_number": "WO2018194143A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2018-10-25"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_BASIC_REPUB",
+                "family_id": "F_BASIC_REPUB",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "JP2018540489A",
+                "application_date": pd.Timestamp("2018-04-19"),
+                "publication_number": "JP2018540489X",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2019-06-27"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "X",
+                "accession_number": "ACC_BASIC_REPUB",
+                "family_id": "F_BASIC_REPUB",
+                "country_code": "JP",
+            },
+            {
+                "application_number": "JP2018540489A",
+                "application_date": pd.Timestamp("2018-04-19"),
+                "publication_number": "",
+                "registration_number": "JP06571291B2",
+                "publication_date": pd.Timestamp("2019-09-04"),
+                "registration_date": pd.Timestamp("2019-09-04"),
+                "legal_status": "active",
+                "kind": "B2",
+                "accession_number": "ACC_BASIC_REPUB",
+                "family_id": "F_BASIC_REPUB",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP", "US", "EP", "WO", "CN", "KR"],
+        use_basic_selection=True,
+        treat_wo_republication_as_jp=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["selected_patent_number"] == "WO2018194143A1"
+    assert pd.to_datetime(selected.iloc[0]["publication_date"]) == pd.Timestamp("2018-10-25")
 
 
 def test_exclude_invalid_avoids_dead_selected_patent_number() -> None:
