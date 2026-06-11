@@ -2684,3 +2684,51 @@ def test_basic_mode_uses_publication_fallback_when_dwpi_members_are_empty() -> N
     assert len(selected) == 1
     assert selected.iloc[0]["publication_number"] == "CN108140599A"
     assert selected.iloc[0]["selected_patent_number"] == "CN108140599A"
+
+
+def test_basic_matching_uses_original_publication_number_before_pairing_fill() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "APP_BASIC_PAIR",
+                "application_date": pd.Timestamp("2023-12-31"),
+                "publication_number": "",
+                "registration_number": "KR2936749B1",
+                "publication_date": pd.NaT,
+                "registration_date": pd.Timestamp("2026-03-11"),
+                "legal_status": "Alive",
+                "kind": "B1",
+                "accession_number": "ACC_BASIC_PAIR",
+                "family_id": "F_BASIC_PAIR",
+                "country_code": "KR",
+                "dwpi_family_members": "WO2026101178A1 | KR2936749B1",
+            },
+            {
+                "application_number": "APP_BASIC_PAIR",
+                "application_date": pd.Timestamp("2024-01-01"),
+                "publication_number": "WO2026101178A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2026-05-15"),
+                "registration_date": pd.NaT,
+                "legal_status": "Alive",
+                "kind": "A1",
+                "accession_number": "ACC_BASIC_PAIR",
+                "family_id": "F_BASIC_PAIR",
+                "country_code": "WO",
+                "dwpi_family_members": "WO2026101178A1 | KR2936749B1",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="registration",
+        date_policy="latest",
+        country_priority=["JP", "US", "EP", "WO", "CN", "KR"],
+        use_basic_selection=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "WO2026101178A1"
+    assert selected.iloc[0]["country_code"] == "WO"

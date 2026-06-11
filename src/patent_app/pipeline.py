@@ -102,6 +102,7 @@ SELECTED_HELPER_DROP_COLUMNS = [
     "_rank_publication_date",
     "_rank_application_number_numeric",
     "_country_matches_selected",
+    "_original_publication_number",
     "_pub_base",
     "_pub_revision",
     "_pub_raw",
@@ -723,6 +724,8 @@ def _pair_publication_registration_by_application(df: pd.DataFrame) -> pd.DataFr
         return df.copy()
 
     out = df.copy()
+    # Preserve the original publication number so Basic matching can reference pre-pair values.
+    out["_original_publication_number"] = out["publication_number"]
     match_keys = _build_pairing_match_keys(out)
     if "_pairing_key_override" in out.columns:
         override = out["_pairing_key_override"].fillna("").astype(str).str.strip()
@@ -1150,7 +1153,8 @@ def _build_basic_priority_mask(df: pd.DataFrame) -> pd.Series:
     family_first_member = df.groupby("_family_key", dropna=False)["dwpi_family_members"].transform(
         _first_non_empty_dwpi_member
     )
-    publication = df["publication_number"].map(_normalize_publication_number)
+    publication_col = "_original_publication_number" if "_original_publication_number" in df.columns else "publication_number"
+    publication = df[publication_col].map(_normalize_publication_number)
     return publication.ne("") & publication.eq(family_first_member)
 
 
