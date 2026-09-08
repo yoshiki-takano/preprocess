@@ -1070,6 +1070,53 @@ def test_leading_republish_wo_application_number_is_preserved_when_original_exis
     assert selected.iloc[0]["application_number"] == "WO_ORIGINAL_APPNO"
 
 
+def test_leading_republish_handles_application_date_outside_nanosecond_range() -> None:
+    """年1桁などナノ秒範囲外の出願日があっても先行再公表ルールが失敗しないこと。"""
+    df = pd.DataFrame(
+        [
+            {
+                "application_number": "",
+                "application_date": date(1, 1, 1),
+                "publication_number": "WO2024123456A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-03-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_OUT_OF_RANGE",
+                "family_id": "F_OUT_OF_RANGE",
+                "country_code": "WO",
+            },
+            {
+                "application_number": "APP_FROM_JPA1",
+                "application_date": date(1, 1, 1),
+                "publication_number": "JP2024123456A1",
+                "registration_number": "",
+                "publication_date": pd.Timestamp("2024-02-01"),
+                "registration_date": pd.NaT,
+                "legal_status": "active",
+                "kind": "A1",
+                "accession_number": "ACC_OUT_OF_RANGE",
+                "family_id": "F_OUT_OF_RANGE",
+                "country_code": "JP",
+            },
+        ]
+    )
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="latest",
+        country_priority=["JP", "US", "WO"],
+        treat_wo_prior_republication_as_jp=True,
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["publication_number"] == "WO2024123456A1"
+    assert selected.iloc[0]["application_number"] == "APP_FROM_JPA1"
+
+
 def test_leading_republish_jp_a1_is_excluded_even_when_it_has_later_publication_date() -> None:
     """JP A1 should be dropped when its number body matches a WO A1, even if JP A1 has a later date."""
     df = pd.DataFrame(

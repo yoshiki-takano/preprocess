@@ -36,6 +36,21 @@ MSG_COUNTRY_NARROW = "国優先順位で候補を絞り込んでいます..."
 MSG_SELECT_REPRESENTATIVE = "代表公報を選定しています..."
 MSG_FORMAT_OUTPUT = "抽出結果を整形しています..."
 
+# 秒精度なら西暦1年のような異常値も保持でき、ナノ秒範囲外による代入エラーを避けられる
+PAIRING_DATE_DTYPE = "datetime64[s]"
+
+
+def _coerce_pairing_datetime(values: object) -> pd.Series:
+    converted = pd.to_datetime(values, errors="coerce")
+    return converted.astype(PAIRING_DATE_DTYPE)
+
+
+def _ensure_pairing_date_override_column(df: pd.DataFrame) -> None:
+    if "_pairing_date_override" in df.columns:
+        df["_pairing_date_override"] = _coerce_pairing_datetime(df["_pairing_date_override"])
+    else:
+        df["_pairing_date_override"] = pd.Series(pd.NaT, index=df.index, dtype=PAIRING_DATE_DTYPE)
+
 
 @lru_cache(maxsize=1)
 def _load_kind_code_lookup_pipeline() -> dict[tuple[str, str], str]:
@@ -778,12 +793,12 @@ def _build_pairing_match_keys(df: pd.DataFrame) -> pd.Series:
 
     country_series = _resolve_pairing_country_series(df)
     if "application_date" in df.columns:
-        app_date_series = pd.to_datetime(df["application_date"], errors="coerce")
+        app_date_series = _coerce_pairing_datetime(df["application_date"])
     else:
-        app_date_series = pd.Series(pd.NaT, index=df.index)
+        app_date_series = pd.Series(pd.NaT, index=df.index, dtype=PAIRING_DATE_DTYPE)
 
     if "_pairing_date_override" in df.columns:
-        override = pd.to_datetime(df["_pairing_date_override"], errors="coerce")
+        override = _coerce_pairing_datetime(df["_pairing_date_override"])
         app_date_series = app_date_series.mask(override.notna(), override)
 
     keys = app_series.copy()
@@ -900,10 +915,9 @@ def _apply_wo_republication_as_jp(
             out.loc[target_idx, "_pairing_key_override"] = merged.loc[target_idx, "application_number_jpx"].values
 
             # マッチング用の内部出願日を保持する（表示列の application_date は更新しない）
-            if "_pairing_date_override" not in out.columns:
-                out["_pairing_date_override"] = pd.NaT
-            out.loc[target_idx, "_pairing_date_override"] = pd.to_datetime(
-                merged.loc[target_idx, "application_date"], errors="coerce"
+            _ensure_pairing_date_override_column(out)
+            out.loc[target_idx, "_pairing_date_override"] = _coerce_pairing_datetime(
+                merged.loc[target_idx, "application_date"]
             ).values
 
     out.loc[repub_mask, "_country_priority_code"] = "JP"
@@ -977,9 +991,8 @@ def _apply_wo_prior_republication_as_jp(
     if len(override_index) > 0:
         out.loc[override_index, "_pairing_key_override"] = matched_rows.loc[override_index, "application_number_jp"].values
 
-    if "_pairing_date_override" not in out.columns:
-        out["_pairing_date_override"] = pd.NaT
-    matched_dates = pd.to_datetime(merged.loc[matched, "application_date_jp"], errors="coerce")
+    _ensure_pairing_date_override_column(out)
+    matched_dates = _coerce_pairing_datetime(merged.loc[matched, "application_date_jp"])
     has_date = matched_dates.notna()
     if has_date.any():
         out.loc[matched_dates.index[has_date], "_pairing_date_override"] = matched_dates.loc[has_date].values
