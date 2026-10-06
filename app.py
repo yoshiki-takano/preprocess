@@ -135,7 +135,7 @@ st.subheader("選択条件")
 treat_wo_republication_as_jp = st.checkbox("再公表(元WO)をJPとして扱う", value=True)
 treat_wo_prior_republication_as_jp = st.checkbox("先行再公表(WO)をJPとして扱う", value=True)
 country_priority_raw = st.text_input(
-    "国優先順位 (カンマ区切り。並列で調査したいときは=を使う。例: JP,US=EP=WO,CN,KR)",
+    "国優先順位 (カンマ区切り。並列で調査したいときは=を使う。BASICでDWPIファミリー先頭メンバーを指定可。例: JP,US=EP=WO,CN,KR,BASIC)",
     value="JP,US,EP,WO,CN,KR",
     disabled=st.session_state.get("use_basic_selection", False),
 )
@@ -305,16 +305,6 @@ def _build_uploaded_files_key(files) -> tuple[tuple[str, int], ...] | None:
     return tuple(sorted((f.name, f.size) for f in files))
 
 
-def _remove_basic_from_country_priority(groups: list[str]) -> list[str]:
-    out: list[str] = []
-    for group in groups:
-        parts = [part.strip().upper() for part in str(group).split("=") if part.strip()]
-        filtered = [part for part in parts if part != "BASIC"]
-        if filtered:
-            out.append("=".join(filtered))
-    return out
-
-
 # Shared across all sessions on Community Cloud; bound it to avoid memory exhaustion.
 @st.cache_data(show_spinner=False, max_entries=10, ttl=3600)
 def _load_and_canonicalize_file(file_name: str, file_bytes: bytes, cache_version: str) -> pd.DataFrame:
@@ -407,7 +397,7 @@ if uploaded_files:
             canonical_df = preview_df.copy()
 
             progress.progress(24, text="抽出条件を準備しています...")
-            parsed_country_priority = _remove_basic_from_country_priority(parse_country_priority(country_priority_raw))
+            parsed_country_priority = parse_country_priority(country_priority_raw)
             effective_mode = "family" if use_basic_selection else mode
             cfg = SelectionConfig(
                 mode=effective_mode,
