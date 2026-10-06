@@ -219,6 +219,12 @@ def build_xlsx_bytes(
         export_df = selected_df.drop(columns=list(SUPPRESSED_OUTPUT_COLUMNS), errors="ignore").rename(
             columns=OUTPUT_COLUMN_RENAME
         )
+    if "無効/有効" in export_df.columns:
+        source_status = export_df["無効/有効"]
+        normalized_status = source_status.astype("string").str.strip().str.casefold().map(
+            {"alive": "有効", "indeterminate": "有効", "dead": "失効"}
+        )
+        export_df["無効/有効"] = normalized_status.where(normalized_status.notna(), source_status)
     export_df = _coerce_text_output_dates(export_df)
     _write_dataframe(results_ws, export_df, hyperlink_source_df=hyperlink_source_df)
 

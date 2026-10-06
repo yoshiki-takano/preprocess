@@ -445,9 +445,29 @@ def test_template_export_uses_screener_column_schema() -> None:
     assert row["五庁有効ファミリ"] == "JP20240001A1"
     assert row["五庁失効ファミリ"] == "US20240001A1"
     assert row["その他ファミリ"] == "WO2024000001A1"
-    assert row["無効/有効"] == "Alive"
+    assert row["無効/有効"] == "有効"
     assert row["国名コード"] == "JP"
     assert row["PDF コピー"] is None
+
+
+def test_export_maps_legal_statuses_to_japanese_values() -> None:
+    selected = pd.DataFrame({"legal_status": ["Alive", "Indeterminate", "Dead"]})
+
+    output_bytes = build_xlsx_bytes(selected)
+    result_ws = load_workbook(io.BytesIO(output_bytes))["SearchData"]
+
+    assert [result_ws.cell(row=row, column=1).value for row in range(2, 5)] == ["有効", "有効", "失効"]
+
+    template_buffer = io.BytesIO()
+    workbook = Workbook()
+    workbook.active.title = "SearchData"
+    workbook.save(template_buffer)
+    template_output = build_xlsx_bytes(selected, template_bytes=template_buffer.getvalue())
+    template_ws = load_workbook(io.BytesIO(template_output))["SearchData"]
+    template_headers = [cell.value for cell in template_ws[1]]
+    status_column = template_headers.index("無効/有効") + 1
+
+    assert [template_ws.cell(row=row, column=status_column).value for row in range(2, 5)] == ["有効", "有効", "失効"]
 
 
 def test_template_export_populates_memo1_from_selected_dataframe() -> None:
