@@ -378,38 +378,33 @@ def _collect_selected_rows(
     config: SelectionConfig,
     progress_callback: ProgressCallback | None,
 ) -> list[pd.Series]:
-    selected_rows: list[pd.Series] = []
-    grouped_items = list(grouped.groupby("_group_key", dropna=False))
-    total_groups = len(grouped_items)
-
-    for idx, (_, group) in enumerate(grouped_items, start=1):
-        selected_rows.append(_select_representative(group, config))
-        progress = _build_representative_progress(idx, total_groups)
-        if progress is not None:
-            _notify_progress(progress_callback, progress, f"{MSG_SELECT_REPRESENTATIVE} ({idx}/{total_groups})")
-
-    return selected_rows
+    if grouped.empty:
+        return []
+    return _take_first_per_group(_rank_representative_candidates(grouped, config), progress_callback)
 
 
 def _collect_selected_rows_basic(
     grouped: pd.DataFrame,
     progress_callback: ProgressCallback | None,
 ) -> list[pd.Series]:
-    selected_rows: list[pd.Series] = []
-    grouped_items = list(grouped.groupby("_group_key", dropna=False))
-    total_groups = len(grouped_items)
-
-    for idx, (_, group) in enumerate(grouped_items, start=1):
-        selected_rows.append(_select_representative_basic(group))
-        progress = _build_representative_progress(idx, total_groups)
-        if progress is not None:
-            _notify_progress(progress_callback, progress, f"{MSG_SELECT_REPRESENTATIVE} ({idx}/{total_groups})")
-
-    return selected_rows
+    if grouped.empty:
+        return []
+    return _take_first_per_group(_rank_representative_candidates_basic(grouped), progress_callback)
 
 
-def _select_representative_basic(group: pd.DataFrame) -> pd.Series:
-    ranked = group.copy()
+def _take_first_per_group(ranked: pd.DataFrame, progress_callback: ProgressCallback | None) -> list[pd.Series]:
+    best = ranked.drop_duplicates("_group_key", keep="first")
+    total_groups = len(best)
+    _notify_progress(
+        progress_callback,
+        PROGRESS_SELECT_REPRESENTATIVE_END,
+        f"{MSG_SELECT_REPRESENTATIVE} ({total_groups}/{total_groups})",
+    )
+    return [row for _, row in best.iterrows()]
+
+
+def _rank_representative_candidates_basic(df: pd.DataFrame) -> pd.DataFrame:
+    ranked = df.copy()
     publication = ranked["publication_number"].fillna("").astype(str).str.strip()
     ranked["_has_primary"] = publication.ne("").astype(int)
 
@@ -417,27 +412,12 @@ def _select_representative_basic(group: pd.DataFrame) -> pd.Series:
     ranked["_rank_application_date"] = pd.to_datetime(ranked["application_date"], errors="coerce")
 
     ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
-    ranked = _filter_min_revision(ranked, "_pub_base", "_pub_revision")
+    ranked = _filter_min_revision(ranked, "_group_key", "_pub_base", "_pub_revision")
 
-    ranked = ranked.sort_values(
-        by=["_has_primary", "_pub_base", "_pub_revision", "_rank_publication_date", "_rank_application_date"],
-        ascending=[False, True, True, True, True],
+    return ranked.sort_values(
+        by=["_group_key", "_has_primary", "_pub_base", "_pub_revision", "_rank_publication_date", "_rank_application_date"],
+        ascending=[True, False, True, True, True, True],
         na_position="last",
-    )
-    return ranked.iloc[0]
-
-
-def _build_representative_progress(idx: int, total_groups: int) -> int | None:
-    if total_groups <= 0:
-        return None
-
-    step = max(1, total_groups // 8)
-    should_notify = idx == 1 or idx == total_groups or idx % step == 0
-    if not should_notify:
-        return None
-
-    return PROGRESS_SELECT_REPRESENTATIVE_START + int(
-        (idx / total_groups) * (PROGRESS_SELECT_REPRESENTATIVE_END - PROGRESS_SELECT_REPRESENTATIVE_START)
     )
 
 
@@ -757,35 +737,36 @@ def _pair_publication_registration_by_application(df: pd.DataFrame) -> pd.DataFr
     pairing_family = _resolve_pairing_family_series(out, match_keys)
     pair_keys = match_keys.where(match_keys.eq(""), pairing_family + "||" + match_keys)
 
-    for match_key, idx in pair_keys.groupby(pair_keys).groups.items():
-        if not match_key:
-            continue
-
-        group = out.loc[idx]
-        best_pub = _pick_best_record(group, "publication_number", "publication_date")
-        best_reg = _pick_best_record(group, "registration_number", "registration_date")
-
-        if best_pub is not None:
-            out.loc[idx, "publication_number"] = out.loc[idx, "publication_number"].mask(
-                out.loc[idx, "publication_number"].fillna("").astype(str).str.strip() == "",
-                best_pub["publication_number"],
-            )
-            out.loc[idx, "publication_date"] = out.loc[idx, "publication_date"].mask(
-                out.loc[idx, "publication_date"].isna(),
-                best_pub["publication_date"],
-            )
-
-        if best_reg is not None:
-            out.loc[idx, "registration_number"] = out.loc[idx, "registration_number"].mask(
-                out.loc[idx, "registration_number"].fillna("").astype(str).str.strip() == "",
-                best_reg["registration_number"],
-            )
-            out.loc[idx, "registration_date"] = out.loc[idx, "registration_date"].mask(
-                out.loc[idx, "registration_date"].isna(),
-                best_reg["registration_date"],
-            )
-
+    _fill_from_best_record(out, pair_keys, "publication_number", "publication_date")
+    _fill_from_best_record(out, pair_keys, "registration_number", "registration_date")
     return out
+
+
+def _fill_from_best_record(out: pd.DataFrame, pair_keys: pd.Series, number_col: str, date_col: str) -> None:
+    number = out[number_col].fillna("").astype(str).str.strip()
+    candidate_mask = pair_keys.ne("") & number.ne("")
+    if not candidate_mask.any():
+        return
+
+    candidates = out.loc[candidate_mask, [number_col, date_col]].assign(
+        _pair_key=pair_keys[candidate_mask],
+        _sort_date=pd.to_datetime(out.loc[candidate_mask, date_col], errors="coerce"),
+    )
+    candidates = candidates.join(_build_revision_sort_columns(candidates[number_col], "num"))
+    candidates = candidates.sort_values(
+        by=["_pair_key", "_sort_date", "_num_base", "_num_revision", "_num_raw"],
+        ascending=[True, False, True, True, True],
+        na_position="last",
+    )
+    best = candidates.drop_duplicates("_pair_key", keep="first").set_index("_pair_key")
+
+    has_best = pair_keys.isin(best.index)
+    fill_number = has_best & number.eq("")
+    if fill_number.any():
+        out.loc[fill_number, number_col] = pair_keys[fill_number].map(best[number_col])
+    fill_date = has_best & out[date_col].isna()
+    if fill_date.any():
+        out.loc[fill_date, date_col] = pair_keys[fill_date].map(best[date_col])
 
 
 def _resolve_pairing_family_series(df: pd.DataFrame, match_keys: pd.Series) -> pd.Series:
@@ -1089,22 +1070,6 @@ def _extract_publication_numeric_body(value: object) -> str:
     return "".join(re.findall(r"\d+", text))
 
 
-def _pick_best_record(group: pd.DataFrame, number_col: str, date_col: str) -> pd.Series | None:
-    candidates = group[group[number_col].fillna("").astype(str).str.strip() != ""]
-    if candidates.empty:
-        return None
-
-    number_sort = _build_revision_sort_columns(candidates[number_col], "num")
-    ranked_candidates = candidates.join(number_sort)
-
-    ranked = ranked_candidates.sort_values(
-        by=[date_col, "_num_base", "_num_revision", "_num_raw"],
-        ascending=[False, True, True, True],
-        na_position="last",
-    )
-    return ranked.iloc[0]
-
-
 def _extract_no_acc(df: pd.DataFrame) -> pd.DataFrame:
     value_series = df["accession_number"].fillna("").astype(str).str.strip().str.lower()
     mask = value_series.isin(NO_ACC_TOKENS)
@@ -1283,10 +1248,10 @@ def _attach_ranking_helper_columns(
     return out
 
 
-def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.Series:
+def _rank_representative_candidates(df: pd.DataFrame, config: SelectionConfig) -> pd.DataFrame:
     primary_number_col = "registration_number" if config.priority_basis == "registration" else "publication_number"
 
-    ranked = group.copy()
+    ranked = df.copy()
     has_primary = ranked[primary_number_col].fillna("").astype(str).str.strip() != ""
     ranked["_has_primary"] = has_primary.astype(int)
     # selected_patent_number と同じ国コードの行を優先する。
@@ -1316,16 +1281,17 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
     ranked = ranked.join(_build_revision_sort_columns(ranked["publication_number"], "pub"))
     ranked = ranked.join(_build_revision_sort_columns(ranked["registration_number"], "reg"))
     # Kind codeリビジョンは比較キーに使わず、同一ベース番号内で最小のみ残す
-    ranked = _filter_min_revision(ranked, "_pub_base", "_pub_revision")
-    ranked = _filter_min_revision(ranked, "_reg_base", "_reg_revision")
+    ranked = _filter_min_revision(ranked, "_group_key", "_pub_base", "_pub_revision")
+    ranked = _filter_min_revision(ranked, "_group_key", "_reg_base", "_reg_revision")
     # 特許(0)を実案(1)より常に優先する
     puab = _resolve_puab_for_numbers(ranked["publication_number"], ranked["registration_number"])
     ranked["_is_utility"] = puab.isin({"UA", "UB"}).astype(int)
 
     ascending_date = config.date_policy == "earliest"
 
-    ranked = ranked.sort_values(
+    return ranked.sort_values(
         by=[
+            "_group_key",
             "_is_utility",
             "_has_primary",
             "_country_matches_selected",
@@ -1333,11 +1299,9 @@ def _select_representative(group: pd.DataFrame, config: SelectionConfig) -> pd.S
             "_rank_publication_date",
             "_rank_application_number_numeric",
         ],
-        ascending=[True, False, False, ascending_date, ascending_date, ascending_date],
+        ascending=[True, True, False, False, ascending_date, ascending_date, ascending_date],
         na_position="last",
     )
-
-    return ranked.iloc[0]
 
 
 def _build_revision_sort_columns(series: pd.Series, prefix: str) -> pd.DataFrame:
@@ -1384,18 +1348,16 @@ def _resolve_puab_for_numbers(publication_number: pd.Series, registration_number
     return pd.Series([lookup.get((cc, kc), "") for cc, kc in zip(country, kind_code)], index=publication_number.index)
 
 
-def _filter_min_revision(df: pd.DataFrame, base_col: str, rev_col: str) -> pd.DataFrame:
-    """同一ベース番号内でリビジョン番号が最小の行のみを残す（ベース番号が空の行は対象外）。"""
-    has_base = df[base_col].ne("")
+def _filter_min_revision(df: pd.DataFrame, group_col: str, base_col: str, rev_col: str) -> pd.DataFrame:
+    """同一グループ・同一ベース番号内でリビジョン番号が最小の行のみを残す（ベース番号が空の行は対象外）。"""
+    has_base = df[base_col].ne("").to_numpy()
     if not has_base.any():
         return df
-    has_base_idx = df.index[has_base]
-    min_rev = df.loc[has_base_idx, base_col].map(
-        df.loc[has_base_idx].groupby(base_col)[rev_col].min()
-    )
-    keep_mask = pd.Series(True, index=df.index)
-    keep_mask.loc[has_base_idx] = df.loc[has_base_idx, rev_col] == min_rev
-    return df[keep_mask]
+    with_base = df.loc[has_base]
+    min_rev = with_base.groupby([group_col, base_col], sort=False)[rev_col].transform("min")
+    keep = ~has_base
+    keep[has_base] = (with_base[rev_col] == min_rev).to_numpy()
+    return df[keep]
 
 
 def _contains_exclude_status(value: str) -> bool:
@@ -2138,7 +2100,7 @@ def _fill_blank_values_from_paired_rows(selected_df: pd.DataFrame, canonical_df:
         "registration_number",
     }
 
-    for idx, row in out.iterrows():
+    for idx, row in zip(out.index, out.to_dict("records")):
         accession = _as_text(row.get("accession_number", ""))
         app_no = _as_text(row.get("application_number", ""))
         key = (accession, app_no)
@@ -2149,10 +2111,9 @@ def _fill_blank_values_from_paired_rows(selected_df: pd.DataFrame, canonical_df:
         selected_no = _as_text(row.get("selected_patent_number", ""))
         ordered_candidates = _order_candidates_by_selected_patent(candidates, selected_no)
 
-        for column in out.columns:
+        for column, current_value in row.items():
             if column in protected_columns:
                 continue
-            current_value = out.at[idx, column]
             if not _is_blank_like(current_value):
                 continue
 
