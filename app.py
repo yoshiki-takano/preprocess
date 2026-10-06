@@ -138,6 +138,11 @@ country_priority_raw = st.text_input(
     "国優先順位 (カンマ区切り。並列で調査したいときは=を使う。BASICでDWPIファミリー先頭メンバーを指定可。例: JP,US=EP=WO,CN,KR,BASIC)",
     value="JP,US,EP,WO,CN,KR",
     disabled=st.session_state.get("use_basic_selection", False),
+    help=(
+        "BASICは、入力ファイルにBASIC特許（DWPIファミリー先頭メンバー）の行が含まれ、"
+        "かつ除外条件で除外されていない場合のみ有効です。"
+        "該当行がない場合は、他の国優先順位に従って選択されます。"
+    ),
 )
 use_basic_selection = st.checkbox(
     "Basicを選択（DWPIファミリー先頭メンバー）",
