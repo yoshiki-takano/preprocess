@@ -315,7 +315,8 @@ def _remove_basic_from_country_priority(groups: list[str]) -> list[str]:
     return out
 
 
-@st.cache_data(show_spinner=False)
+# Shared across all sessions on Community Cloud; bound it to avoid memory exhaustion.
+@st.cache_data(show_spinner=False, max_entries=10, ttl=3600)
 def _load_and_canonicalize_file(file_name: str, file_bytes: bytes, cache_version: str) -> pd.DataFrame:
     raw_file_df = load_dataframe(file_name, file_bytes)
     file_columns = list(raw_file_df.columns)
@@ -325,7 +326,6 @@ def _load_and_canonicalize_file(file_name: str, file_bytes: bytes, cache_version
     return canonical_file_df
 
 
-@st.cache_data(show_spinner=False)
 def _build_preview_dataframe(file_payloads: tuple[tuple[str, bytes], ...], cache_version: str) -> pd.DataFrame:
     canonical_preview_dfs = [
         _load_and_canonicalize_file(name, content, cache_version)
