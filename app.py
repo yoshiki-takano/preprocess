@@ -22,9 +22,38 @@ from patent_app.config import NO_ACC_TOKENS
 from patent_app.models import SelectionConfig
 from patent_app.pipeline import run_selection_pipeline
 
+INPUT_FIELDS_HINT = """
+**必須項目（抽出処理に使用）**
+- 公報番号
+- DWPI アクセッション番号
+- 出願番号
+- 出願日
+- 公報発行日
+- 無効/有効
+- DWPI ファミリーメンバー
+- PDF コピー
+- フロントページ イメージ
+- フロントページ図
+- 優先権主張番号
+- 優先権主張日
+- 譲受人/出願人
+- 譲受人 - DWPI
+- 譲受人 - 標準化
+- DWPI ファミリーメンバー 有効/無効
+
+**出力転記用（無い場合は空欄で出力）**
+- INPADOC ファミリーメンバー
+- 公報言語 / タイトル (英語) / タイトル - DWPI
+- IPC - 最新 / CPC - 最新 / US クラス
+- 抄録 (英語) / 抄録 - DWPI 新規性・用途・優位性 / 請求項 (英語) / 請求項数
+"""
+
 st.set_page_config(page_title="Patent Extractor", layout="wide")
 st.title("母集団処理アプリ")
-st.caption("Excelを読み込み、指定した条件で調査対象を抽出します。入力ファイルは、DPSでDWPIファミリを取得し、所定の項目を選択してからダウンロードして下さい。")
+st.caption(
+    "Excelを読み込み、指定した条件で調査対象を抽出します。入力ファイルは、DPSでDWPIファミリを取得し、所定の項目を選択してからダウンロードして下さい。",
+    help=INPUT_FIELDS_HINT,
+)
 
 first_day_this_month = date.today().replace(day=1)
 default_end_date = first_day_this_month - timedelta(days=1)
