@@ -429,7 +429,7 @@ if uploaded_files:
         st.metric("抽出件数", f"{len(selected_df):,}")
 
         output_extension = _detect_output_extension(st.session_state["output_bytes"], template_is_xlsm)
-        output_file_name = f"{date.today():%Y%m%d}_selected_patents.{output_extension}"
+        output_file_name = f"{date.today():%Y%m%d}_screener.{output_extension}"
         output_mime = (
             "application/vnd.ms-excel.sheet.macroEnabled.12"
             if output_extension == "xlsm"
