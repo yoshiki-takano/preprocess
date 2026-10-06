@@ -37,6 +37,15 @@ default_start_date = date(start_year, start_month, 1)
 date_input_min = date(1950, 1, 1)
 date_input_max = date.today()
 
+PREVIEW_COLUMN_LABELS = {
+    "accession_number": "DWPI アクセッション番号",
+    "publication_number": "公報番号",
+    "registration_number": "登録番号",
+    "publication_date": "公報発行日",
+    "application_number": "出願番号",
+    "application_date": "出願日",
+}
+
 uploaded_files = st.file_uploader(
     "入力ファイル (.xlsx)",
     type=["xlsx"],
@@ -346,8 +355,9 @@ if uploaded_files:
         st.warning("入力データの読み込みに失敗しました。ファイルを再選択してください。")
         st.stop()
 
+    preview_columns = [column for column in PREVIEW_COLUMN_LABELS if column in preview_df.columns]
     _render_paginated_dataframe(
-        preview_df,
+        preview_df[preview_columns].rename(columns=PREVIEW_COLUMN_LABELS),
         "入力プレビュー",
         "raw_preview",
         family_count=raw_family_count,
