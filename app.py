@@ -44,6 +44,10 @@ PREVIEW_COLUMN_LABELS = {
     "publication_date": "公報発行日",
     "application_number": "出願番号",
     "application_date": "出願日",
+    "priority_number": "優先権番号",
+    "priority_date": "優先権主張日",
+    "legal_status": "ステータス",
+    "source_file": "ソースファイル",
 }
 
 uploaded_files = st.file_uploader(
