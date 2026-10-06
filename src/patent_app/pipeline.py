@@ -754,7 +754,10 @@ def _pair_publication_registration_by_application(df: pd.DataFrame) -> pd.DataFr
         match_keys = match_keys.mask(override.ne(""), override)
     out["_pairing_application_key"] = match_keys
 
-    for match_key, idx in match_keys.groupby(match_keys).groups.items():
+    pairing_family = _resolve_pairing_family_series(out, match_keys)
+    pair_keys = match_keys.where(match_keys.eq(""), pairing_family + "||" + match_keys)
+
+    for match_key, idx in pair_keys.groupby(pair_keys).groups.items():
         if not match_key:
             continue
 
@@ -783,6 +786,22 @@ def _pair_publication_registration_by_application(df: pd.DataFrame) -> pd.DataFr
             )
 
     return out
+
+
+def _resolve_pairing_family_series(df: pd.DataFrame, match_keys: pd.Series) -> pd.Series:
+    if "family_id" in df.columns:
+        family = df["family_id"].fillna("").astype(str).str.strip()
+    else:
+        family = pd.Series("", index=df.index)
+    missing = family.eq("") | family.str.lower().isin(NO_ACC_TOKENS)
+
+    known = pd.DataFrame({"key": match_keys[~missing], "family": family[~missing]})
+    known = known[known["key"].ne("")].drop_duplicates()
+    family_count = known.groupby("key")["family"].transform("size")
+    unique_family = known[family_count.eq(1)].set_index("key")["family"]
+    # Blank-family rows join a family only when the application key maps to exactly one family.
+    inherited = match_keys.map(unique_family).fillna("")
+    return family.mask(missing, inherited)
 
 
 def _build_pairing_match_keys(df: pd.DataFrame) -> pd.Series:

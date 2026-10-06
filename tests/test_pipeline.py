@@ -9,7 +9,7 @@ import pandas as pd
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from patent_app.models import SelectionConfig
-from patent_app.pipeline import run_selection_pipeline
+from patent_app.pipeline import _pair_publication_registration_by_application, run_selection_pipeline
 from patent_app.io_ops import INTERNAL_PUBLICATION_URL_COLUMN, INTERNAL_RAW_PUBLICATION_COLUMN
 
 
@@ -2923,3 +2923,71 @@ def test_basic_matching_uses_raw_excel_publication_snapshot_when_available() -> 
     assert selected.iloc[0]["country_code"] == "KR"
     assert selected.iloc[0]["registration_number"] == "KR2936749B1"
     assert selected.iloc[0]["selected_patent_number"] == "KR2936749B1"
+
+
+def _pairing_row(family_id: str, publication_number: str = "", registration_number: str = "") -> dict:
+    return {
+        "application_number": "US2002306631A",
+        "application_date": pd.Timestamp("2002-11-27"),
+        "publication_number": publication_number,
+        "registration_number": registration_number,
+        "publication_date": pd.Timestamp("2004-02-12") if publication_number else pd.NaT,
+        "registration_date": pd.Timestamp("2007-07-17") if registration_number else pd.NaT,
+        "legal_status": "Dead",
+        "kind": "A1" if publication_number else "B2",
+        "accession_number": family_id,
+        "family_id": family_id,
+        "country_code": "US",
+    }
+
+
+def test_pairing_does_not_cross_family_boundaries() -> None:
+    df = pd.DataFrame(
+        [
+            _pairing_row("2004168940", publication_number="US20040029795A1"),
+            _pairing_row("2000672681", registration_number="US7244827B2"),
+            {
+                **_pairing_row("2000672681", publication_number="US20100273174A1"),
+                "application_number": "US2010829256A",
+                "application_date": pd.Timestamp("2010-07-01"),
+                "publication_date": pd.Timestamp("2010-10-28"),
+            },
+        ]
+    )
+
+    paired = _pair_publication_registration_by_application(df)
+    assert paired.loc[1, "publication_number"] == ""
+    assert paired.loc[0, "registration_number"] == ""
+
+    cfg = SelectionConfig(
+        mode="family",
+        priority_basis="publication",
+        date_policy="earliest",
+        country_priority=["JP", "US", "EP", "WO", "CN", "KR"],
+    )
+    selected, _ = run_selection_pipeline(df, cfg)
+    assert selected["publication_number"].eq("US20040029795A1").sum() == 1
+
+
+def test_pairing_blank_family_joins_unique_family_only() -> None:
+    unique_df = pd.DataFrame(
+        [
+            _pairing_row("F1", publication_number="US20040029795A1"),
+            _pairing_row("", registration_number="US7244827B2"),
+        ]
+    )
+    paired = _pair_publication_registration_by_application(unique_df)
+    assert paired.loc[1, "publication_number"] == "US20040029795A1"
+    assert paired.loc[0, "registration_number"] == "US7244827B2"
+
+    ambiguous_df = pd.DataFrame(
+        [
+            _pairing_row("F1", publication_number="US20040029795A1"),
+            _pairing_row("F2", registration_number="US7244827B2"),
+            _pairing_row("", registration_number="US7244827B2"),
+        ]
+    )
+    paired = _pair_publication_registration_by_application(ambiguous_df)
+    assert paired.loc[1, "publication_number"] == ""
+    assert paired.loc[2, "publication_number"] == ""
+    assert paired.loc[0, "registration_number"] == ""
