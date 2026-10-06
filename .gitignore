@@ -17,6 +17,7 @@ env/
 coverage.xml
 htmlcov/
 R/
+copilot-instructions.md
 
 # Jupyter
 .ipynb_checkpoints/
