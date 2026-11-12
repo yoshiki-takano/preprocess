@@ -9,7 +9,11 @@ import pandas as pd
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from patent_app.models import SelectionConfig
-from patent_app.pipeline import _pair_publication_registration_by_application, run_selection_pipeline
+from patent_app.pipeline import (
+    _fill_blank_values_from_paired_rows,
+    _pair_publication_registration_by_application,
+    run_selection_pipeline,
+)
 from patent_app.io_ops import INTERNAL_PUBLICATION_URL_COLUMN, INTERNAL_RAW_PUBLICATION_COLUMN
 
 
@@ -455,6 +459,30 @@ def test_blank_value_is_filled_from_paired_counterpart_row() -> None:
     assert len(selected) == 1
     assert selected.iloc[0]["selected_patent_number"] == "JP07807441B2"
     assert selected.iloc[0]["請求項 (英語)"] == "Claim text from publication row"
+
+
+def test_backfill_text_into_numeric_column_preserves_existing_values() -> None:
+    selected = pd.DataFrame(
+        {
+            "accession_number": ["DW1", "DW2"],
+            "application_number": ["APP1", "APP2"],
+            "selected_patent_number": ["REG1", "REG2"],
+            "disclaimer": [float("nan"), 12.0],
+            "claim_count": [float("nan"), 7.0],
+        }
+    )
+    canonical = pd.DataFrame(
+        [
+            {"accession_number": "DW1", "application_number": "APP1", "disclaimer": "Disclaimer text", "claim_count": 4.0},
+            {"accession_number": "DW2", "application_number": "APP2", "disclaimer": "Other text", "claim_count": 8.0},
+        ]
+    )
+
+    result = _fill_blank_values_from_paired_rows(selected, canonical)
+
+    assert result["disclaimer"].tolist() == ["Disclaimer text", 12.0]
+    assert result["claim_count"].tolist() == [4.0, 7.0]
+    assert pd.api.types.is_numeric_dtype(result["claim_count"])
 
 
 def test_selected_column_order_starts_with_requested_fields() -> None:

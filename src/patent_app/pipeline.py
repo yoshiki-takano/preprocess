@@ -2121,6 +2121,8 @@ def _fill_blank_values_from_paired_rows(selected_df: pd.DataFrame, canonical_df:
             replacement = _pick_first_non_blank_from_candidates(ordered_candidates, backfill_columns)
             if _is_blank_like(replacement):
                 continue
+            if isinstance(replacement, str) and pd.api.types.is_numeric_dtype(out[column].dtype):
+                out[column] = out[column].astype(object)
             out.at[idx, column] = replacement
 
     return out
